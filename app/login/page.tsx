@@ -11,16 +11,20 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    setIsLoading(true);
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  e.preventDefault();
+  setError("");
+  setIsLoading(true);
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+  const formData = new FormData(e.currentTarget);
+  const emailValue = formData.get("email") as string;
+  const passwordValue = formData.get("password") as string;
+
+  const result = await signIn("credentials", {
+    email: emailValue,
+    password: passwordValue,
+    redirect: false,
+  });
 
     if (result?.error) {
       setError("Invalid email or password");
@@ -28,7 +32,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push("/chat");
     router.refresh();
   }
 
@@ -40,6 +44,8 @@ export default function LoginPage() {
           <label className="block text-sm mb-1">Email</label>
           <input
             type="email"
+            name="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -50,6 +56,8 @@ export default function LoginPage() {
           <label className="block text-sm mb-1">Password</label>
           <input
             type="password"
+            name="password"
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

@@ -1,18 +1,19 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+
+const HIDDEN_ON = ["/", "/login", "/register"];
 
 export default function Navbar() {
   const { data: session } = useSession();
+  const pathname = usePathname();
 
   if (!session) return null;
+  if (HIDDEN_ON.includes(pathname)) return null;
 
   const links = [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/documents", label: "Documents" },
-    { href: "/flashcards", label: "Flashcards" },
-    { href: "/quizzes", label: "Quizzes" },
     { href: "/chat", label: "Chat" },
     { href: "/progress", label: "Progress" },
   ];
