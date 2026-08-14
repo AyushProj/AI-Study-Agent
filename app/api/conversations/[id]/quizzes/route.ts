@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/db";
 import { auth } from "@/auth";
-import { getCombinedTextForDocuments, generateQuizQuestions } from "@/lib/generation";
-import type { Quiz, QuizQuestion, QuizAttempt } from "@/types/quiz";
+import {
+  getCombinedTextForDocuments,
+  getCombinedTextForMessages,
+  generateQuizQuestions,
+} from "@/lib/generation";
+import type { Quiz, QuizQuestion, QuizAttempt, GenerationSource } from "@/types/quiz";
 
 export async function GET(
   request: Request,
@@ -72,32 +76,60 @@ export async function POST(
   }
 
   const body = await request.json().catch(() => ({}));
-  const documentIds: string[] = Array.isArray(body.documentIds) ? body.documentIds : [];
+  const source: GenerationSource = body.source === "chat" ? "chat" : "documents";
   const count = [5, 10, 20].includes(body.count) ? body.count : 10;
-
-  if (documentIds.length === 0 || !documentIds.every((d) => ObjectId.isValid(d))) {
-    return NextResponse.json({ error: "Select at least one valid document" }, { status: 400 });
-  }
 
   const userId = new ObjectId(session.user.id);
   const conversationId = new ObjectId(id);
-  const documentObjectIds = documentIds.map((d) => new ObjectId(d));
 
   const client = await clientPromise;
   const db = client.db();
 
-  const ownedCount = await db.collection("documents").countDocuments({
-    _id: { $in: documentObjectIds },
-    userId,
-    status: "ready",
-  });
-  if (ownedCount !== documentObjectIds.length) {
-    return NextResponse.json({ error: "One or more documents are invalid" }, { status: 400 });
+  let contextText = "";
+  let documentObjectIds: ObjectId[] = [];
+  let messageObjectIds: ObjectId[] = [];
+
+  if (source === "chat") {
+    const messageIds: string[] = Array.isArray(body.messageIds) ? body.messageIds : [];
+    if (messageIds.length === 0 || !messageIds.every((m) => ObjectId.isValid(m))) {
+      return NextResponse.json(
+        { error: "Select at least one part of the conversation" },
+        { status: 400 }
+      );
+    }
+    messageObjectIds = messageIds.map((m) => new ObjectId(m));
+
+    const ownedCount = await db.collection("messages").countDocuments({
+      _id: { $in: messageObjectIds },
+      conversationId,
+      userId,
+    });
+    if (ownedCount !== messageObjectIds.length) {
+      return NextResponse.json({ error: "One or more messages are invalid" }, { status: 400 });
+    }
+
+    contextText = await getCombinedTextForMessages(messageObjectIds, conversationId, userId);
+  } else {
+    const documentIds: string[] = Array.isArray(body.documentIds) ? body.documentIds : [];
+    if (documentIds.length === 0 || !documentIds.every((d) => ObjectId.isValid(d))) {
+      return NextResponse.json({ error: "Select at least one valid document" }, { status: 400 });
+    }
+    documentObjectIds = documentIds.map((d) => new ObjectId(d));
+
+    const ownedCount = await db.collection("documents").countDocuments({
+      _id: { $in: documentObjectIds },
+      userId,
+      status: "ready",
+    });
+    if (ownedCount !== documentObjectIds.length) {
+      return NextResponse.json({ error: "One or more documents are invalid" }, { status: 400 });
+    }
+
+    contextText = await getCombinedTextForDocuments(documentObjectIds, userId);
   }
 
-  const contextText = await getCombinedTextForDocuments(documentObjectIds, userId);
   if (!contextText.trim()) {
-    return NextResponse.json({ error: "No text available for selected documents" }, { status: 400 });
+    return NextResponse.json({ error: "No text available to generate from" }, { status: 400 });
   }
 
   let generated;
@@ -112,7 +144,9 @@ export async function POST(
   const quizResult = await db.collection<Quiz>("quizzes").insertOne({
     userId,
     conversationId,
+    source,
     documentIds: documentObjectIds,
+    messageIds: messageObjectIds,
     title: `Quiz (${generated.length} questions)`,
     questionCount: generated.length,
     createdAt: now,

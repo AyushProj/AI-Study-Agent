@@ -1,10 +1,14 @@
 import { ObjectId } from "mongodb";
 
+export type GenerationSource = "documents" | "chat";
+
 export interface FlashcardSet {
   _id?: ObjectId;
   userId: ObjectId;
   conversationId: ObjectId;
-  documentIds: ObjectId[];
+  source: GenerationSource;
+  documentIds: ObjectId[]; // populated when source === "documents"
+  messageIds: ObjectId[]; // populated when source === "chat"
   title: string;
   cardCount: number;
   createdAt: Date;

@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import DocumentPicker from "../DocumentPicker";
+import ChatSourcePicker from "../ChatSourcePicker";
+import SourceToggle, { GenerationSourceValue } from "../SourceToggle";
 
 interface FlashcardSetSummary {
   _id: string;
@@ -20,7 +23,9 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
   const [sets, setSets] = useState<FlashcardSetSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showGenerate, setShowGenerate] = useState(false);
+  const [source, setSource] = useState<GenerationSourceValue>("documents");
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
+  const [selectedMessages, setSelectedMessages] = useState<string[]>([]);
   const [count, setCount] = useState(10);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -29,6 +34,8 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
   const [cards, setCards] = useState<CardData[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+
+  const prefersReducedMotion = useReducedMotion();
 
   const loadSets = useCallback(async () => {
     setIsLoading(true);
@@ -43,15 +50,20 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
 
   async function handleGenerate() {
     setError("");
-    if (selectedDocs.length === 0) {
-      setError("Select at least one document");
+    const selection = source === "documents" ? selectedDocs : selectedMessages;
+    if (selection.length === 0) {
+      setError(source === "documents" ? "Select at least one document" : "Select at least one chat topic");
       return;
     }
     setIsGenerating(true);
     const res = await fetch(`/api/conversations/${conversationId}/flashcards`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ documentIds: selectedDocs, count }),
+      body: JSON.stringify(
+        source === "documents"
+          ? { source, documentIds: selectedDocs, count }
+          : { source, messageIds: selectedMessages, count }
+      ),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -59,6 +71,7 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
     } else {
       setShowGenerate(false);
       setSelectedDocs([]);
+      setSelectedMessages([]);
       await loadSets();
     }
     setIsGenerating(false);
@@ -88,15 +101,37 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
 
         {card ? (
           <>
-            <div
-              onClick={() => setIsFlipped((f) => !f)}
-              className="cursor-pointer rounded border border-gray-700 min-h-[220px] flex items-center justify-center p-8 text-center"
-            >
-              <p className="text-lg">{isFlipped ? card.answer : card.question}</p>
+            <div className="[perspective:1200px]">
+              <motion.div
+                onClick={() => setIsFlipped((f) => !f)}
+                animate={{ rotateY: isFlipped ? 180 : 0 }}
+                transition={{ duration: prefersReducedMotion ? 0 : 0.45, ease: "easeInOut" }}
+                className="relative min-h-[220px] cursor-pointer [transform-style:preserve-3d]"
+              >
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl border border-gray-700 bg-gray-900/50 p-8 text-center [backface-visibility:hidden]">
+                  <p className="text-lg">{card.question}</p>
+                </div>
+                <div
+                  className="absolute inset-0 flex items-center justify-center rounded-xl border border-accent/40 bg-gray-900/70 p-8 text-center [backface-visibility:hidden]"
+                  style={{ transform: "rotateY(180deg)" }}
+                >
+                  <p className="text-lg">{card.answer}</p>
+                </div>
+              </motion.div>
             </div>
-            <p className="text-xs text-gray-500 text-center mt-2">
-              Click card to flip · {cardIndex + 1} / {cards.length}
-            </p>
+
+            <p className="text-xs text-gray-500 text-center mt-3">Click card to flip</p>
+            <div className="flex justify-center gap-1.5 mt-2">
+              {cards.map((_, i) => (
+                <span
+                  key={i}
+                  className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                    i === cardIndex ? "bg-accent" : "bg-gray-700"
+                  }`}
+                />
+              ))}
+            </div>
+
             <div className="flex justify-between mt-4">
               <button
                 disabled={cardIndex === 0}
@@ -139,37 +174,61 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
         </button>
       </div>
 
-      {showGenerate && (
-        <div className="rounded border border-gray-800 p-4 mb-6 space-y-4">
-          <div>
-            <p className="text-sm text-gray-300 mb-2">Documents to use</p>
-            <DocumentPicker
-              conversationId={conversationId}
-              selected={selectedDocs}
-              onChange={setSelectedDocs}
-            />
-          </div>
-          <div>
-            <label className="text-sm text-gray-300 block mb-1">Number of cards</label>
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={count}
-              onChange={(e) => setCount(Number(e.target.value))}
-              className="w-24 rounded border border-gray-600 bg-gray-900 px-2 py-1 text-sm text-white"
-            />
-          </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="rounded bg-white text-black text-sm font-medium px-4 py-2 hover:bg-gray-200 disabled:opacity-50"
+      <AnimatePresence initial={false}>
+        {showGenerate && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: "easeOut" }}
+            className="overflow-hidden"
           >
-            {isGenerating ? "Generating..." : "Generate"}
-          </button>
-        </div>
-      )}
+            <div className="rounded-xl border border-gray-800 p-4 mb-6 space-y-4">
+              <div>
+                <p className="text-sm text-gray-300 mb-2">Generate from</p>
+                <SourceToggle value={source} onChange={setSource} />
+              </div>
+              <div>
+                <p className="text-sm text-gray-300 mb-2">
+                  {source === "documents" ? "Documents to use" : "Chat topics to use"}
+                </p>
+                {source === "documents" ? (
+                  <DocumentPicker
+                    conversationId={conversationId}
+                    selected={selectedDocs}
+                    onChange={setSelectedDocs}
+                  />
+                ) : (
+                  <ChatSourcePicker
+                    conversationId={conversationId}
+                    selected={selectedMessages}
+                    onChange={setSelectedMessages}
+                  />
+                )}
+              </div>
+              <div>
+                <label className="text-sm text-gray-300 block mb-1">Number of cards</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  value={count}
+                  onChange={(e) => setCount(Number(e.target.value))}
+                  className="w-24 rounded border border-gray-600 bg-gray-900 px-2 py-1 text-sm text-white"
+                />
+              </div>
+              {error && <p className="text-red-500 text-sm">{error}</p>}
+              <button
+                onClick={handleGenerate}
+                disabled={isGenerating}
+                className="rounded bg-accent text-accent-foreground text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
+              >
+                {isGenerating ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {isLoading && <p className="text-gray-500 text-sm">Loading...</p>}
       {!isLoading && sets.length === 0 && !showGenerate && (
@@ -177,17 +236,24 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
       )}
 
       <ul className="space-y-2">
-        {sets.map((set) => (
-          <li key={set._id}>
-            <button
-              onClick={() => openSet(set._id)}
-              className="w-full text-left rounded border border-gray-800 px-4 py-3 hover:bg-gray-900"
+        <AnimatePresence>
+          {sets.map((set, i) => (
+            <motion.li
+              key={set._id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: i * 0.03 }}
             >
-              <p className="text-sm">{set.title}</p>
-              <p className="text-xs text-gray-500">{set.cardCount} cards</p>
-            </button>
-          </li>
-        ))}
+              <button
+                onClick={() => openSet(set._id)}
+                className="w-full text-left rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
+              >
+                <p className="text-sm">{set.title}</p>
+                <p className="text-xs text-gray-500">{set.cardCount} cards</p>
+              </button>
+            </motion.li>
+          ))}
+        </AnimatePresence>
       </ul>
     </div>
   );

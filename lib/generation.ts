@@ -3,6 +3,7 @@ import { z } from "zod";
 import clientPromise from "@/lib/db";
 import { groq, CHAT_MODEL } from "@/lib/groq";
 import type { DocumentChunk } from "@/types/chunk";
+import type { ChatMessage } from "@/types/message";
 
 const MAX_CONTEXT_CHARS = 12000; // keep prompts small/cheap; enough for solid generation
 
@@ -25,6 +26,32 @@ export async function getCombinedTextForDocuments(
     .toArray();
 
   const combined = chunks.map((c) => c.text).join("\n\n");
+  return combined.slice(0, MAX_CONTEXT_CHARS);
+}
+
+/**
+ * Pulls the text of the given chat messages (owned by the given user, in
+ * the given conversation), in chronological order, formatted as Q/A pairs
+ * so the model has clear turn structure to generate from. Capped the same
+ * way as the document path.
+ */
+export async function getCombinedTextForMessages(
+  messageIds: ObjectId[],
+  conversationId: ObjectId,
+  userId: ObjectId
+): Promise<string> {
+  const client = await clientPromise;
+  const db = client.db();
+
+  const messages = await db
+    .collection<ChatMessage>("messages")
+    .find({ _id: { $in: messageIds }, conversationId, userId })
+    .sort({ createdAt: 1 })
+    .toArray();
+
+  const combined = messages
+    .map((m) => `${m.role === "user" ? "Q" : "A"}: ${m.content}`)
+    .join("\n\n");
   return combined.slice(0, MAX_CONTEXT_CHARS);
 }
 

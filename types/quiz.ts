@@ -1,12 +1,15 @@
 import { ObjectId } from "mongodb";
 
 export type QuizQuestionCount = 5 | 10 | 20;
+export type GenerationSource = "documents" | "chat";
 
 export interface Quiz {
   _id?: ObjectId;
   userId: ObjectId;
   conversationId: ObjectId;
-  documentIds: ObjectId[];
+  source: GenerationSource;
+  documentIds: ObjectId[]; // populated when source === "documents"
+  messageIds: ObjectId[]; // populated when source === "chat"
   title: string;
   questionCount: number;
   createdAt: Date;
