@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import DocumentPicker from "../DocumentPicker";
 import ChatSourcePicker from "../ChatSourcePicker";
 import SourceToggle, { GenerationSourceValue } from "../SourceToggle";
+import OverflowMenu from "../OverflowMenu";
 
 interface QuizSummary {
   _id: string;
@@ -45,6 +46,10 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [results, setResults] = useState<{ score: number; total: number; results: ResultData[] } | null>(null);
+
+  // Rename state for the quizzes list.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const prefersReducedMotion = useReducedMotion();
 
@@ -120,6 +125,49 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
     setIsSubmitting(false);
   }
 
+  function startEditing(quiz: QuizSummary) {
+    setEditingId(quiz._id);
+    setEditValue(quiz.title);
+  }
+
+  async function saveTitle(quizId: string) {
+    const trimmed = editValue.trim();
+    setEditingId(null);
+    if (!trimmed) return;
+
+    const previous = quizzes;
+    setQuizzes((prev) => prev.map((q) => (q._id === quizId ? { ...q, title: trimmed } : q)));
+
+    const res = await fetch(`/api/quizzes/${quizId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: trimmed }),
+    });
+
+    if (!res.ok) {
+      setQuizzes(previous);
+    }
+  }
+
+  async function handleDelete(quizId: string) {
+    const confirmed = window.confirm("Delete this quiz? This can't be undone.");
+    if (!confirmed) return;
+
+    const previous = quizzes;
+    setQuizzes((prev) => prev.filter((q) => q._id !== quizId));
+
+    const res = await fetch(`/api/quizzes/${quizId}`, { method: "DELETE" });
+
+    if (!res.ok) {
+      setQuizzes(previous);
+      return;
+    }
+
+    if (activeQuizId === quizId) {
+      setActiveQuizId(null);
+    }
+  }
+
   if (activeQuizId) {
     return (
       <div className="p-6 text-white max-w-2xl">
@@ -132,7 +180,9 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
 
         {results ? (
           <div>
-            <ScoreReveal score={results.score} total={results.total} reduceMotion={!!prefersReducedMotion} />
+            <div className="rounded-xl border border-gray-800 p-5">
+              <ScoreReveal score={results.score} total={results.total} reduceMotion={!!prefersReducedMotion} />
+            </div>
             <div className="space-y-4 mt-6">
               {results.results.map((r, i) => (
                 <motion.div
@@ -140,68 +190,118 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: prefersReducedMotion ? 0 : 0.25, delay: i * 0.04 }}
-                  className={`rounded-lg border px-4 py-3 ${
-                    r.isCorrect ? "border-green-800" : "border-red-800"
+                  className={`rounded-xl border p-4 ${
+                    r.isCorrect ? "border-green-800/60" : "border-red-800/60"
                   }`}
                 >
-                  <p className="text-sm mb-2">{r.question}</p>
-                  <ul className="space-y-1">
-                    {r.options.map((opt, oi) => (
-                      <li
-                        key={oi}
-                        className={`text-xs px-2 py-1 rounded ${
-                          oi === r.correctIndex
-                            ? "bg-green-900 text-green-200"
-                            : oi === r.selectedIndex
-                            ? "bg-red-900 text-red-200"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        {opt}
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="text-sm font-medium mb-3">{r.question}</p>
+                  <div className="space-y-2">
+                    {r.options.map((opt, oi) => {
+                      const isCorrectAnswer = oi === r.correctIndex;
+                      const isUserWrongPick = oi === r.selectedIndex && !r.isCorrect;
+                      return (
+                        <div
+                          key={oi}
+                          className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${
+                            isCorrectAnswer
+                              ? "border-green-700 bg-green-900/30 text-green-200"
+                              : isUserWrongPick
+                              ? "border-red-700 bg-red-900/30 text-red-200"
+                              : "border-gray-800 text-gray-400"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
+                              isCorrectAnswer
+                                ? "border-green-600 bg-green-700 text-white"
+                                : isUserWrongPick
+                                ? "border-red-600 bg-red-700 text-white"
+                                : "border-gray-700 text-gray-500"
+                            }`}
+                          >
+                            {isCorrectAnswer ? "✓" : isUserWrongPick ? "✗" : String.fromCharCode(65 + oi)}
+                          </span>
+                          <span>{opt}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </motion.div>
               ))}
             </div>
           </div>
         ) : (
-          <div className="space-y-5">
-            {questions.map((q, qi) => (
-              <motion.div
-                key={q._id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: qi * 0.03 }}
-              >
-                <p className="text-sm mb-2">
-                  {q.index + 1}. {q.question}
-                </p>
-                <div className="space-y-1">
-                  {q.options.map((opt, i) => (
-                    <label
-                      key={i}
-                      className={`flex items-center gap-2 text-sm text-gray-200 cursor-pointer rounded px-2 py-1 transition-colors ${
-                        answers[q._id] === i ? "bg-accent/10" : "hover:bg-gray-900"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name={q._id}
-                        checked={answers[q._id] === i}
-                        onChange={() => setAnswers((prev) => ({ ...prev, [q._id]: i }))}
-                        className="accent-accent"
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </motion.div>
-            ))}
+          <div>
+            <div className="mb-5">
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+                <span>
+                  {Object.keys(answers).length} of {questions.length} answered
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-gray-800 overflow-hidden">
+                <motion.div
+                  className="h-full rounded-full bg-accent"
+                  animate={{
+                    width: `${questions.length ? (Object.keys(answers).length / questions.length) * 100 : 0}%`,
+                  }}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {questions.map((q, qi) => (
+                <motion.div
+                  key={q._id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: qi * 0.03 }}
+                  className="rounded-xl border border-gray-800 p-4"
+                >
+                  <p className="text-sm font-medium mb-3">
+                    {q.index + 1}. {q.question}
+                  </p>
+                  <div className="space-y-2">
+                    {q.options.map((opt, i) => {
+                      const isSelected = answers[q._id] === i;
+                      return (
+                        <label
+                          key={i}
+                          className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                            isSelected
+                              ? "border-accent bg-accent/10 text-white"
+                              : "border-gray-700 text-gray-300 hover:border-gray-500 hover:bg-gray-900"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={q._id}
+                            checked={isSelected}
+                            onChange={() => setAnswers((prev) => ({ ...prev, [q._id]: i }))}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
+                              isSelected
+                                ? "border-accent bg-accent text-accent-foreground"
+                                : "border-gray-600 text-gray-400"
+                            }`}
+                          >
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                          <span>{opt}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
             <button
               onClick={handleSubmit}
               disabled={isSubmitting || Object.keys(answers).length !== questions.length}
-              className="rounded bg-accent text-accent-foreground text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
+              className="w-full mt-5 rounded-lg bg-accent text-accent-foreground text-sm font-medium px-4 py-2.5 hover:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
             >
               {isSubmitting ? "Submitting..." : "Submit Quiz"}
             </button>
@@ -299,17 +399,39 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: i * 0.03 }}
+              className="group flex items-center gap-2 rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
             >
-              <button
-                onClick={() => openQuiz(quiz._id)}
-                className="w-full text-left rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
-              >
-                <p className="text-sm">{quiz.title}</p>
-                <p className="text-xs text-gray-500">
-                  {quiz.questionCount} questions
-                  {quiz.lastScore && ` · Last score: ${quiz.lastScore.correct}/${quiz.lastScore.total}`}
-                </p>
-              </button>
+              {editingId === quiz._id ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => saveTitle(quiz._id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveTitle(quiz._id);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  className="flex-1 bg-transparent border-b border-gray-500 outline-none text-sm text-white"
+                />
+              ) : (
+                <>
+                  <button onClick={() => openQuiz(quiz._id)} className="flex-1 text-left">
+                    <p className="text-sm">{quiz.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {quiz.questionCount} questions
+                      {quiz.lastScore && ` · Last score: ${quiz.lastScore.correct}/${quiz.lastScore.total}`}
+                    </p>
+                  </button>
+                  <div className="opacity-0 group-hover:opacity-100">
+                    <OverflowMenu
+                      items={[
+                        { label: "Rename", onClick: () => startEditing(quiz) },
+                        { label: "Delete", onClick: () => handleDelete(quiz._id), danger: true },
+                      ]}
+                    />
+                  </div>
+                </>
+              )}
             </motion.li>
           ))}
         </AnimatePresence>

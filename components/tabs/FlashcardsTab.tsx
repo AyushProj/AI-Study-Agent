@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import DocumentPicker from "../DocumentPicker";
 import ChatSourcePicker from "../ChatSourcePicker";
 import SourceToggle, { GenerationSourceValue } from "../SourceToggle";
+import OverflowMenu from "../OverflowMenu";
 
 interface FlashcardSetSummary {
   _id: string;
@@ -34,8 +35,25 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
   const [cards, setCards] = useState<CardData[]>([]);
   const [cardIndex, setCardIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  // Which side's text is actually rendered. Swapped at the animation's
+  // midpoint (see effect below) so the question is never in the DOM at the
+  // same time as the answer — no backface-visibility reliance, no bleed-through.
+  const [activeFace, setActiveFace] = useState<"question" | "answer">("question");
+
+  // Rename state for the sets list.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const prefersReducedMotion = useReducedMotion();
+  const FLIP_DURATION = prefersReducedMotion ? 0 : 0.4;
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setActiveFace(isFlipped ? "answer" : "question"),
+      (FLIP_DURATION * 1000) / 2
+    );
+    return () => clearTimeout(timer);
+  }, [isFlipped, FLIP_DURATION]);
 
   const loadSets = useCallback(async () => {
     setIsLoading(true);
@@ -81,10 +99,56 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
     setActiveSetId(setId);
     setCardIndex(0);
     setIsFlipped(false);
+    setActiveFace("question");
     const res = await fetch(`/api/conversations/${conversationId}/flashcards/${setId}`);
     if (res.ok) {
       const data = await res.json();
       setCards(data.cards);
+    }
+  }
+
+  function startEditing(set: FlashcardSetSummary) {
+    setEditingId(set._id);
+    setEditValue(set.title);
+  }
+
+  async function saveTitle(setId: string) {
+    const trimmed = editValue.trim();
+    setEditingId(null);
+    if (!trimmed) return;
+
+    const previous = sets;
+    setSets((prev) => prev.map((s) => (s._id === setId ? { ...s, title: trimmed } : s)));
+
+    const res = await fetch(`/api/conversations/${conversationId}/flashcards/${setId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: trimmed }),
+    });
+
+    if (!res.ok) {
+      setSets(previous);
+    }
+  }
+
+  async function handleDelete(setId: string) {
+    const confirmed = window.confirm("Delete this flashcard set? This can't be undone.");
+    if (!confirmed) return;
+
+    const previous = sets;
+    setSets((prev) => prev.filter((s) => s._id !== setId));
+
+    const res = await fetch(`/api/conversations/${conversationId}/flashcards/${setId}`, {
+      method: "DELETE",
+    });
+
+    if (!res.ok) {
+      setSets(previous);
+      return;
+    }
+
+    if (activeSetId === setId) {
+      setActiveSetId(null);
     }
   }
 
@@ -101,22 +165,25 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
 
         {card ? (
           <>
-            <div className="[perspective:1200px]">
+            <div style={{ perspective: 1200 }}>
               <motion.div
                 onClick={() => setIsFlipped((f) => !f)}
                 animate={{ rotateY: isFlipped ? 180 : 0 }}
-                transition={{ duration: prefersReducedMotion ? 0 : 0.45, ease: "easeInOut" }}
-                className="relative min-h-[220px] cursor-pointer [transform-style:preserve-3d]"
+                transition={{ duration: FLIP_DURATION, ease: "easeInOut" }}
+                className={`flex min-h-[220px] cursor-pointer items-center justify-center rounded-xl border p-8 text-center transition-colors ${
+                  activeFace === "answer"
+                    ? "border-accent/40 bg-gray-900/70"
+                    : "border-gray-700 bg-gray-900/50"
+                }`}
               >
-                <div className="absolute inset-0 flex items-center justify-center rounded-xl border border-gray-700 bg-gray-900/50 p-8 text-center [backface-visibility:hidden]">
-                  <p className="text-lg">{card.question}</p>
-                </div>
-                <div
-                  className="absolute inset-0 flex items-center justify-center rounded-xl border border-accent/40 bg-gray-900/70 p-8 text-center [backface-visibility:hidden]"
-                  style={{ transform: "rotateY(180deg)" }}
+                {/* Counter-rotate the text itself so it reads upright once the
+                    card has turned all the way around, rather than mirrored. */}
+                <p
+                  className="text-lg"
+                  style={{ transform: activeFace === "answer" ? "rotateY(180deg)" : "none" }}
                 >
-                  <p className="text-lg">{card.answer}</p>
-                </div>
+                  {activeFace === "answer" ? card.answer : card.question}
+                </p>
               </motion.div>
             </div>
 
@@ -138,6 +205,7 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
                 onClick={() => {
                   setCardIndex((i) => i - 1);
                   setIsFlipped(false);
+                  setActiveFace("question");
                 }}
                 className="text-sm text-gray-300 hover:text-white disabled:opacity-30"
               >
@@ -148,6 +216,7 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
                 onClick={() => {
                   setCardIndex((i) => i + 1);
                   setIsFlipped(false);
+                  setActiveFace("question");
                 }}
                 className="text-sm text-gray-300 hover:text-white disabled:opacity-30"
               >
@@ -243,14 +312,36 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: i * 0.03 }}
+              className="group flex items-center gap-2 rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
             >
-              <button
-                onClick={() => openSet(set._id)}
-                className="w-full text-left rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
-              >
-                <p className="text-sm">{set.title}</p>
-                <p className="text-xs text-gray-500">{set.cardCount} cards</p>
-              </button>
+              {editingId === set._id ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => saveTitle(set._id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveTitle(set._id);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  className="flex-1 bg-transparent border-b border-gray-500 outline-none text-sm text-white"
+                />
+              ) : (
+                <>
+                  <button onClick={() => openSet(set._id)} className="flex-1 text-left">
+                    <p className="text-sm">{set.title}</p>
+                    <p className="text-xs text-gray-500">{set.cardCount} cards</p>
+                  </button>
+                  <div className="opacity-0 group-hover:opacity-100">
+                    <OverflowMenu
+                      items={[
+                        { label: "Rename", onClick: () => startEditing(set) },
+                        { label: "Delete", onClick: () => handleDelete(set._id), danger: true },
+                      ]}
+                    />
+                  </div>
+                </>
+              )}
             </motion.li>
           ))}
         </AnimatePresence>

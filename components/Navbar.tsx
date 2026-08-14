@@ -25,7 +25,7 @@ export default function Navbar() {
         transition={{ duration: prefersReducedMotion ? 0 : 0.3 }}
         className="text-sm text-gray-200"
       >
-        Welcome, <span className="font-medium text-accent">{displayName}</span>
+        Welcome, <span className="font-semibold text-white">{displayName}</span>
       </motion.p>
       <button
         onClick={() => signOut({ callbackUrl: "/login" })}
