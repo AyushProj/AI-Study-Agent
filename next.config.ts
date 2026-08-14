@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["@xenova/transformers", "onnxruntime-node"],
+
+  outputFileTracingIncludes: {
+    "/api/documents": ["./node_modules/onnxruntime-node/bin/napi-v3/**/*"],
+  },
 };
 
 export default nextConfig;
