@@ -1,11 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import DocumentPicker from "../DocumentPicker";
-import ChatSourcePicker from "../ChatSourcePicker";
-import SourceToggle, { GenerationSourceValue } from "../SourceToggle";
-import OverflowMenu from "../OverflowMenu";
+import { useState, useCallback, useEffect, useRef } from "react";
+import DocumentPicker from "@/components/DocumentPicker";
+import ChatSourcePicker from "@/components/ChatSourcePicker";
 
 interface QuizSummary {
   _id: string;
@@ -30,6 +27,8 @@ interface ResultData {
   isCorrect: boolean;
 }
 
+type GenerationSourceValue = "documents" | "chat";
+
 export default function QuizTab({ conversationId }: { conversationId: string }) {
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -47,11 +46,19 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [results, setResults] = useState<{ score: number; total: number; results: ResultData[] } | null>(null);
 
-  // Rename state for the quizzes list.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
-  const prefersReducedMotion = useReducedMotion();
+  // Check for reduced motion preference
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setPrefersReducedMotion(mediaQuery.matches);
+  }, []);
+
+  // IMPORTANT: Ref for answer container to prevent scrolling
+  const answersContainerRef = useRef<HTMLDivElement>(null);
 
   const loadQuizzes = useCallback(async () => {
     setIsLoading(true);
@@ -68,58 +75,69 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
     setError("");
     const selection = source === "documents" ? selectedDocs : selectedMessages;
     if (selection.length === 0) {
-      setError(source === "documents" ? "Select at least one document" : "Select at least one chat topic");
+      setError("Please select at least one source");
       return;
     }
     setIsGenerating(true);
-    const res = await fetch(`/api/conversations/${conversationId}/quizzes`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        source === "documents"
-          ? { source, documentIds: selectedDocs, count }
-          : { source, messageIds: selectedMessages, count }
-      ),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Generation failed");
-    } else {
+
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/quizzes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          documentIds: source === "documents" ? selection : [],
+          messageIds: source === "chat" ? selection : [],
+          count,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Generation failed");
+      }
+
+      // Reset form after successful generation
+      await loadQuizzes();
       setShowGenerate(false);
       setSelectedDocs([]);
       setSelectedMessages([]);
-      await loadQuizzes();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate quiz");
+    } finally {
+      setIsGenerating(false);
     }
-    setIsGenerating(false);
   }
 
   async function openQuiz(quizId: string) {
-    setActiveQuizId(quizId);
-    setAnswers({});
-    setResults(null);
-    const res = await fetch(`/api/quizzes/${quizId}`);
+    const res = await fetch(`/api/quizzes/${quizId}/questions`);
     if (res.ok) {
-      const data = await res.json();
-      setQuestions(data.questions);
+      const qs = await res.json();
+      setQuestions(qs);
+      setAnswers({});
+      setResults(null);
+      setActiveQuizId(quizId);
     }
   }
 
   async function handleSubmit() {
     if (!activeQuizId) return;
     setIsSubmitting(true);
-    const payload = {
-      answers: Object.entries(answers).map(([questionId, selectedIndex]) => ({
-        questionId,
-        selectedIndex,
-      })),
-    };
+
+    const submittedAnswers = questions.map((q) => ({
+      questionId: q._id,
+      selectedIndex: answers[q._id] ?? -1,
+    }));
+
     const res = await fetch(`/api/quizzes/${activeQuizId}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ answers: submittedAnswers }),
     });
+
     if (res.ok) {
-      setResults(await res.json());
+      const data = await res.json();
+      setResults(data);
       await loadQuizzes();
     }
     setIsSubmitting(false);
@@ -133,10 +151,13 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   async function saveTitle(quizId: string) {
     const trimmed = editValue.trim();
     setEditingId(null);
+
     if (!trimmed) return;
 
     const previous = quizzes;
-    setQuizzes((prev) => prev.map((q) => (q._id === quizId ? { ...q, title: trimmed } : q)));
+    setQuizzes((prev) =>
+      prev.map((q) => (q._id === quizId ? { ...q, title: trimmed } : q))
+    );
 
     const res = await fetch(`/api/quizzes/${quizId}`, {
       method: "PATCH",
@@ -150,158 +171,105 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   }
 
   async function handleDelete(quizId: string) {
-    const confirmed = window.confirm("Delete this quiz? This can't be undone.");
+    const confirmed = window.confirm("Delete this quiz?");
     if (!confirmed) return;
 
     const previous = quizzes;
     setQuizzes((prev) => prev.filter((q) => q._id !== quizId));
 
     const res = await fetch(`/api/quizzes/${quizId}`, { method: "DELETE" });
-
     if (!res.ok) {
       setQuizzes(previous);
-      return;
-    }
-
-    if (activeQuizId === quizId) {
-      setActiveQuizId(null);
     }
   }
 
   if (activeQuizId) {
     return (
-      <div className="p-6 text-white max-w-2xl">
-        <button
-          onClick={() => setActiveQuizId(null)}
-          className="text-sm text-gray-400 hover:text-white mb-4"
-        >
-          ← Back to quizzes
-        </button>
+      <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-950">
+        {/* Header */}
+        <div className="border-b border-gray-200 dark:border-gray-800 p-6 flex items-center justify-between bg-gray-50 dark:bg-gray-900">
+          <button
+            onClick={() => {
+              setActiveQuizId(null);
+              setResults(null);
+            }}
+            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            ← Back to Quizzes
+          </button>
+          {results && <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Quiz Complete</p>}
+        </div>
 
-        {results ? (
-          <div>
-            <div className="rounded-xl border border-gray-800 p-5">
-              <ScoreReveal score={results.score} total={results.total} reduceMotion={!!prefersReducedMotion} />
-            </div>
-            <div className="space-y-4 mt-6">
-              {results.results.map((r, i) => (
-                <motion.div
-                  key={r.questionId}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: prefersReducedMotion ? 0 : 0.25, delay: i * 0.04 }}
-                  className={`rounded-xl border p-4 ${
-                    r.isCorrect ? "border-green-800/60" : "border-red-800/60"
-                  }`}
-                >
-                  <p className="text-sm font-medium mb-3">{r.question}</p>
-                  <div className="space-y-2">
-                    {r.options.map((opt, oi) => {
-                      const isCorrectAnswer = oi === r.correctIndex;
-                      const isUserWrongPick = oi === r.selectedIndex && !r.isCorrect;
-                      return (
-                        <div
-                          key={oi}
-                          className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${
-                            isCorrectAnswer
-                              ? "border-green-700 bg-green-900/30 text-green-200"
-                              : isUserWrongPick
-                              ? "border-red-700 bg-red-900/30 text-red-200"
-                              : "border-gray-800 text-gray-400"
-                          }`}
-                        >
-                          <span
-                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
-                              isCorrectAnswer
-                                ? "border-green-600 bg-green-700 text-white"
-                                : isUserWrongPick
-                                ? "border-red-600 bg-red-700 text-white"
-                                : "border-gray-700 text-gray-500"
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-2xl mx-auto">
+            {results ? (
+              <>
+                <ScoreReveal score={results.score} total={results.total} reduceMotion={prefersReducedMotion} />
+                <div className="mt-8 space-y-6">
+                  {results.results.map((r, idx) => (
+                    <div key={idx} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                      <p className="font-medium text-gray-900 dark:text-white mb-3">
+                        {idx + 1}. {r.question}
+                      </p>
+                      <div className="space-y-2">
+                        {r.options.map((opt, oi) => (
+                          <div
+                            key={oi}
+                            className={`p-2 rounded text-sm ${
+                              oi === r.correctIndex
+                                ? "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-300 dark:border-green-700"
+                                : oi === r.selectedIndex && !r.isCorrect
+                                ? "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border border-red-300 dark:border-red-700"
+                                : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                             }`}
                           >
-                            {isCorrectAnswer ? "✓" : isUserWrongPick ? "✗" : String.fromCharCode(65 + oi)}
-                          </span>
-                          <span>{opt}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div>
-            <div className="mb-5">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-                <span>
-                  {Object.keys(answers).length} of {questions.length} answered
-                </span>
-              </div>
-              <div className="h-1.5 w-full rounded-full bg-gray-800 overflow-hidden">
-                <motion.div
-                  className="h-full rounded-full bg-accent"
-                  animate={{
-                    width: `${questions.length ? (Object.keys(answers).length / questions.length) * 100 : 0}%`,
-                  }}
-                  transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {questions.map((q, qi) => (
-                <motion.div
-                  key={q._id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: qi * 0.03 }}
-                  className="rounded-xl border border-gray-800 p-4"
-                >
-                  <p className="text-sm font-medium mb-3">
-                    {q.index + 1}. {q.question}
-                  </p>
-                  <div className="space-y-2">
-                    {q.options.map((opt, i) => {
-                      const isSelected = answers[q._id] === i;
-                      return (
+                            {opt}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                {questions.map((q, idx) => (
+                  <div key={q._id} className="mb-8 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <p className="font-medium text-gray-900 dark:text-white mb-4">
+                      {idx + 1}. {q.question}
+                    </p>
+                    <div ref={answersContainerRef} className="space-y-2">
+                      {q.options.map((opt, oi) => (
                         <label
-                          key={i}
-                          className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
-                            isSelected
-                              ? "border-accent bg-accent/10 text-white"
-                              : "border-gray-700 text-gray-300 hover:border-gray-500 hover:bg-gray-900"
-                          }`}
+                          key={oi}
+                          className="flex items-center gap-3 p-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
                         >
                           <input
                             type="radio"
-                            name={q._id}
-                            checked={isSelected}
-                            onChange={() => setAnswers((prev) => ({ ...prev, [q._id]: i }))}
-                            className="sr-only"
+                            name={`q-${q._id}`}
+                            checked={answers[q._id] === oi}
+                            onChange={() => setAnswers((prev) => ({ ...prev, [q._id]: oi }))}
+                            className="accent-accent"
                           />
-                          <span
-                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
-                              isSelected
-                                ? "border-accent bg-accent text-accent-foreground"
-                                : "border-gray-600 text-gray-400"
-                            }`}
-                          >
-                            {String.fromCharCode(65 + i)}
-                          </span>
-                          <span>{opt}</span>
+                          <span className="text-sm text-gray-900 dark:text-white">{opt}</span>
                         </label>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </motion.div>
-              ))}
-            </div>
+                ))}
+              </>
+            )}
+          </div>
+        </div>
 
+        {/* Footer */}
+        {!results && (
+          <div className="border-t border-gray-200 dark:border-gray-800 p-6 bg-gray-50 dark:bg-gray-900 flex justify-center">
             <button
               onClick={handleSubmit}
               disabled={isSubmitting || Object.keys(answers).length !== questions.length}
-              className="w-full mt-5 rounded-lg bg-accent text-accent-foreground text-sm font-medium px-4 py-2.5 hover:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
+              className="px-6 py-2 bg-accent text-accent-foreground rounded font-medium hover:bg-yellow-500 disabled:opacity-50"
             >
               {isSubmitting ? "Submitting..." : "Submit Quiz"}
             </button>
@@ -312,35 +280,56 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   }
 
   return (
-    <div className="p-6 text-white max-w-2xl">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-medium">Quizzes</h2>
-        <button
-          onClick={() => setShowGenerate((s) => !s)}
-          className="rounded bg-white text-black text-sm font-medium px-4 py-2 hover:bg-gray-200"
-        >
-          {showGenerate ? "Cancel" : "+ Generate Quiz"}
-        </button>
-      </div>
+    <div className="h-full flex flex-col overflow-hidden bg-white dark:bg-gray-950">
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Quizzes</h2>
+            <button
+              onClick={() => setShowGenerate(!showGenerate)}
+              className="px-4 py-2 bg-accent text-accent-foreground rounded font-medium hover:bg-yellow-500"
+            >
+              {showGenerate ? "Cancel" : "+ Generate Quiz"}
+            </button>
+          </div>
 
-      <AnimatePresence initial={false}>
-        {showGenerate && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: "easeOut" }}
-            className="overflow-hidden"
-          >
-            <div className="rounded-xl border border-gray-800 p-4 mb-6 space-y-4">
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 text-sm rounded">
+              {error}
+            </div>
+          )}
+
+          {showGenerate && (
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg space-y-4">
               <div>
-                <p className="text-sm text-gray-300 mb-2">Generate from</p>
-                <SourceToggle value={source} onChange={setSource} />
+                <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                  Source
+                </label>
+                <div className="flex gap-2">
+                  {(["documents", "chat"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => {
+                        setSource(s);
+                        setSelectedDocs([]);
+                        setSelectedMessages([]);
+                      }}
+                      className={`px-3 py-2 rounded text-sm ${
+                        source === s
+                          ? "bg-accent text-accent-foreground font-medium"
+                          : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-300"
+                      }`}
+                    >
+                      {s === "documents" ? "Documents" : "Chat"}
+                    </button>
+                  ))}
+                </div>
               </div>
+
               <div>
-                <p className="text-sm text-gray-300 mb-2">
-                  {source === "documents" ? "Documents to use" : "Chat topics to use"}
-                </p>
+                <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                  {source === "documents" ? "Select Documents" : "Select Chat Topics"}
+                </label>
                 {source === "documents" ? (
                   <DocumentPicker
                     conversationId={conversationId}
@@ -355,17 +344,20 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   />
                 )}
               </div>
+
               <div>
-                <p className="text-sm text-gray-300 mb-2">Number of questions</p>
+                <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                  Number of Questions
+                </label>
                 <div className="flex gap-2">
                   {[5, 10, 20].map((n) => (
                     <button
                       key={n}
                       onClick={() => setCount(n as 5 | 10 | 20)}
-                      className={`rounded px-3 py-1.5 text-sm border transition-colors ${
+                      className={`px-3 py-2 rounded text-sm ${
                         count === n
-                          ? "bg-accent text-accent-foreground border-accent"
-                          : "border-gray-600 text-gray-300 hover:border-gray-400"
+                          ? "bg-accent text-accent-foreground font-medium"
+                          : "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-300"
                       }`}
                     >
                       {n}
@@ -373,69 +365,77 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   ))}
                 </div>
               </div>
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating}
-                className="rounded bg-accent text-accent-foreground text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
+                className="w-full py-2 bg-accent text-accent-foreground rounded font-medium hover:bg-yellow-500 disabled:opacity-50"
               >
-                {isGenerating ? "Generating..." : "Generate"}
+                {isGenerating ? "Generating..." : "Generate Quiz"}
               </button>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
 
-      {isLoading && <p className="text-gray-500 text-sm">Loading...</p>}
-      {!isLoading && quizzes.length === 0 && !showGenerate && (
-        <p className="text-gray-500 text-sm">No quizzes yet.</p>
-      )}
-
-      <ul className="space-y-2">
-        <AnimatePresence>
-          {quizzes.map((quiz, i) => (
-            <motion.li
-              key={quiz._id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: i * 0.03 }}
-              className="group flex items-center gap-2 rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
-            >
-              {editingId === quiz._id ? (
-                <input
-                  autoFocus
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onBlur={() => saveTitle(quiz._id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveTitle(quiz._id);
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                  className="flex-1 bg-transparent border-b border-gray-500 outline-none text-sm text-white"
-                />
-              ) : (
-                <>
-                  <button onClick={() => openQuiz(quiz._id)} className="flex-1 text-left">
-                    <p className="text-sm">{quiz.title}</p>
-                    <p className="text-xs text-gray-500">
-                      {quiz.questionCount} questions
-                      {quiz.lastScore && ` · Last score: ${quiz.lastScore.correct}/${quiz.lastScore.total}`}
-                    </p>
-                  </button>
-                  <div className="opacity-0 group-hover:opacity-100">
-                    <OverflowMenu
-                      items={[
-                        { label: "Rename", onClick: () => startEditing(quiz) },
-                        { label: "Delete", onClick: () => handleDelete(quiz._id), danger: true },
-                      ]}
-                    />
+          {isLoading ? (
+            <p className="text-gray-600 dark:text-gray-400">Loading quizzes...</p>
+          ) : quizzes.length === 0 ? (
+            <p className="text-gray-600 dark:text-gray-400">No quizzes yet. Create one above!</p>
+          ) : (
+            <div className="space-y-2">
+              {quizzes.map((q) => (
+                <div
+                  key={q._id}
+                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+                >
+                  <div className="flex-1">
+                    {editingId === q._id ? (
+                      <input
+                        autoFocus
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => saveTitle(q._id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveTitle(q._id);
+                          if (e.key === "Escape") setEditingId(null);
+                        }}
+                        className="w-full px-2 py-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white"
+                      />
+                    ) : (
+                      <>
+                        <p className="font-medium text-gray-900 dark:text-white">{q.title}</p>
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                          {q.questionCount} questions
+                          {q.lastScore && ` • Last: ${q.lastScore.correct}/${q.lastScore.total}`}
+                        </p>
+                      </>
+                    )}
                   </div>
-                </>
-              )}
-            </motion.li>
-          ))}
-        </AnimatePresence>
-      </ul>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => openQuiz(q._id)}
+                      className="text-xs px-2 py-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded"
+                    >
+                      Start
+                    </button>
+                    <button
+                      onClick={() => startEditing(q)}
+                      className="text-xs px-2 py-1 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      onClick={() => handleDelete(q._id)}
+                      className="text-xs px-2 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -453,36 +453,41 @@ function ScoreReveal({
   const circumference = 2 * Math.PI * 42;
 
   return (
-    <div className="flex items-center gap-5">
-      <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
-        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--color-background)" strokeWidth="8" />
-        <circle
-          cx="48"
-          cy="48"
-          r="42"
-          fill="none"
-          stroke="#374151"
-          strokeWidth="8"
-        />
-        <motion.circle
-          cx="48"
-          cy="48"
-          r="42"
-          fill="none"
-          stroke="var(--color-accent)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: circumference * (1 - pct / 100) }}
-          transition={{ duration: reduceMotion ? 0 : 0.8, ease: "easeOut" }}
-        />
-      </svg>
-      <div>
-        <p className="text-2xl font-semibold">
-          {score} / {total}
-        </p>
-        <p className="text-sm text-gray-400">{pct}% correct</p>
+    <div className="flex flex-col items-center gap-4">
+      <div className="relative w-40 h-40">
+        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+          <circle
+            cx="50"
+            cy="50"
+            r="42"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="4"
+            className="text-gray-300 dark:text-gray-700"
+          />
+          <circle
+            cx="50"
+            cy="50"
+            r="42"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="4"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference - (circumference * pct) / 100}
+            className="text-accent transition-all duration-500"
+            style={{
+              transitionDuration: reduceMotion ? "0ms" : "500ms",
+            }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-3xl font-bold text-gray-900 dark:text-white">{pct}%</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              {score}/{total}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

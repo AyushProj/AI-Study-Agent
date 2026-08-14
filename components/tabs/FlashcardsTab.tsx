@@ -66,34 +66,44 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
     loadSets();
   }, [loadSets]);
 
-  async function handleGenerate() {
-    setError("");
-    const selection = source === "documents" ? selectedDocs : selectedMessages;
-    if (selection.length === 0) {
-      setError(source === "documents" ? "Select at least one document" : "Select at least one chat topic");
-      return;
-    }
-    setIsGenerating(true);
+
+async function handleGenerate() {
+  setError("");
+  const selection = source === "documents" ? selectedDocs : selectedMessages;
+  if (selection.length === 0) {
+    setError("Please select at least one source");
+    return;
+  }
+  setIsGenerating(true);
+
+  try {
     const res = await fetch(`/api/conversations/${conversationId}/flashcards`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        source === "documents"
-          ? { source, documentIds: selectedDocs, count }
-          : { source, messageIds: selectedMessages, count }
-      ),
+      body: JSON.stringify({
+        source,
+        documentIds: source === "documents" ? selection : [],
+        messageIds: source === "chat" ? selection : [],
+        count,
+      }),
     });
+
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Generation failed");
-    } else {
-      setShowGenerate(false);
-      setSelectedDocs([]);
-      setSelectedMessages([]);
-      await loadSets();
+      const errData = await res.json();
+      throw new Error(errData.error || "Generation failed");
     }
+
+    // Reset form after successful generation
+    await loadSets();
+    setShowGenerate(false);
+    setSelectedDocs([]);
+    setSelectedMessages([]);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Failed to generate flashcards");
+  } finally {
     setIsGenerating(false);
   }
+}
 
   async function openSet(setId: string) {
     setActiveSetId(setId);

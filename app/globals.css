@@ -1,28 +1,40 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
-  /* Signature accent — warm highlighter amber, used sparingly for
-     progress/active states across Flashcards & Quiz. */
   --accent: #f0b429;
   --accent-foreground: #171008;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     --background: #0a0a0a;
     --foreground: #ededed;
   }
+}
+
+/* Allow manual override of theme via data attribute */
+[data-theme="light"] {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #171717;
+  --accent: #f0b429;
+  --accent-foreground: #171008;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+html {
+  background: var(--background);
+  color: var(--foreground);
+  transition: background-color 0.2s, color 0.2s;
 }
 
 body {
@@ -31,8 +43,6 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Respect reduced-motion preferences app-wide; components also check this
-   via framer-motion's useReducedMotion for JS-driven animations. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
