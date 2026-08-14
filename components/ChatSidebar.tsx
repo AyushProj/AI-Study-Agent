@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import OverflowMenu from "./OverflowMenu";
 
 interface ConversationSummary {
   _id: string;
@@ -76,6 +77,27 @@ export default function ChatSidebar() {
     }
   }
 
+  async function handleDelete(id: string) {
+    const confirmed = window.confirm(
+      "Delete this chat? This also deletes its documents and can't be undone."
+    );
+    if (!confirmed) return;
+
+    const previous = conversations;
+    setConversations((prev) => prev.filter((c) => c._id !== id));
+
+    const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+
+    if (!res.ok) {
+      setConversations(previous);
+      return;
+    }
+
+    if (activeId === id) {
+      router.push("/chat");
+    }
+  }
+
   return (
     <aside className="w-64 border-r border-gray-800 h-full flex flex-col">
       <div className="p-3 border-b border-gray-800">
@@ -119,19 +141,17 @@ export default function ChatSidebar() {
               />
             ) : (
               <>
-                <Link
-                  href={`/chat/${c._id}`}
-                  className="truncate flex-1"
-                >
+                <Link href={`/chat/${c._id}`} className="truncate flex-1">
                   {c.title}
                 </Link>
-                <button
-                  onClick={() => startEditing(c)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white text-xs ml-2"
-                  title="Rename"
-                >
-                  ✎
-                </button>
+                <div className="opacity-0 group-hover:opacity-100">
+                  <OverflowMenu
+                    items={[
+                      { label: "Rename", onClick: () => startEditing(c) },
+                      { label: "Delete", onClick: () => handleDelete(c._id), danger: true },
+                    ]}
+                  />
+                </div>
               </>
             )}
           </div>

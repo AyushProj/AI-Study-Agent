@@ -3,7 +3,11 @@ import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/db";
 import { auth } from "@/auth";
 import { uploadFile } from "@/lib/storage";
+import { extractText } from "@/lib/textExtraction";
+import { chunkText } from "@/lib/chunking";
+import { embedText } from "@/lib/embeddings";
 import type { DocumentFileType } from "@/types/document";
+import type { DocumentChunk } from "@/types/chunk";
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 const ALLOWED_TYPES: Record<string, DocumentFileType> = {
@@ -56,28 +60,73 @@ export async function POST(request: Request) {
     const client = await clientPromise;
     const db = client.db();
     const now = new Date();
+    const userId = new ObjectId(session.user.id);
+    const conversationObjectId = conversationId ? new ObjectId(conversationId) : undefined;
 
     const result = await db.collection("documents").insertOne({
-      userId: new ObjectId(session.user.id),
-      conversationId: conversationId ? new ObjectId(conversationId) : undefined,
+      userId,
+      conversationId: conversationObjectId,
       fileName: storageKey,
       originalFileName: file.name,
       fileType,
       fileSizeBytes: file.size,
       storageKey,
       storageUrl,
-      status: "uploading", // becomes "processing" -> "ready" in Phase 3
+      status: "processing",
       createdAt: now,
       updatedAt: now,
     });
 
     // Link this document to the conversation, if one was provided
-    if (conversationId) {
+    if (conversationObjectId) {
       await db.collection("conversations").updateOne(
-        { _id: new ObjectId(conversationId), userId: new ObjectId(session.user.id) },
+        { _id: conversationObjectId, userId },
         { $addToSet: { documentIds: result.insertedId }, $set: { updatedAt: now } }
       );
     }
+
+    // Extract -> chunk -> embed -> store. Runs synchronously so the response
+    // reflects the final status; simplest option, no background job/queue.
+    let finalStatus: "ready" | "failed" = "ready";
+
+    if (!conversationObjectId) {
+      // RAG chunks are scoped to a conversation. A document uploaded without
+      // one has nothing to attach chunks to, so skip processing for it.
+      finalStatus = "ready";
+    } else {
+      try {
+        const text = await extractText(buffer, fileType);
+        const rawChunks = chunkText(text);
+
+        if (rawChunks.length === 0) {
+          throw new Error("No extractable text found in document");
+        }
+
+        const chunkDocs: DocumentChunk[] = [];
+        for (const chunk of rawChunks) {
+          const embedding = await embedText(chunk.text);
+          chunkDocs.push({
+            documentId: result.insertedId,
+            conversationId: conversationObjectId,
+            userId,
+            chunkIndex: chunk.index,
+            text: chunk.text,
+            embedding,
+            createdAt: now,
+          });
+        }
+
+        await db.collection<DocumentChunk>("documentChunks").insertMany(chunkDocs);
+      } catch (processingError) {
+        console.error("Document processing error:", processingError);
+        finalStatus = "failed";
+      }
+    }
+
+    await db.collection("documents").updateOne(
+      { _id: result.insertedId },
+      { $set: { status: finalStatus, updatedAt: new Date() } }
+    );
 
     return NextResponse.json(
       {
@@ -85,7 +134,7 @@ export async function POST(request: Request) {
         originalFileName: file.name,
         fileType,
         fileSizeBytes: file.size,
-        status: "uploading",
+        status: finalStatus,
       },
       { status: 201 }
     );

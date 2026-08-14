@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import OverflowMenu from "../OverflowMenu";
 
 interface DocumentSummary {
   _id: string;
@@ -8,6 +9,7 @@ interface DocumentSummary {
   fileType: string;
   fileSizeBytes: number;
   status: string;
+  storageUrl: string;
 }
 
 export default function DocumentsTab({ conversationId }: { conversationId: string }) {
@@ -15,6 +17,8 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const loadDocuments = useCallback(async () => {
     setIsLoading(true);
@@ -57,10 +61,46 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
   }
 
   async function handleDelete(id: string) {
+    const confirmed = window.confirm("Delete this document? This can't be undone.");
+    if (!confirmed) return;
+
+    const previous = documents;
+    setDocuments((prev) => prev.filter((d) => d._id !== id));
+
     const res = await fetch(`/api/documents/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      setDocuments((prev) => prev.filter((d) => d._id !== id));
+    if (!res.ok) {
+      setDocuments(previous);
     }
+  }
+
+  function startEditing(doc: DocumentSummary) {
+    setEditingId(doc._id);
+    setEditValue(doc.originalFileName);
+  }
+
+  async function saveRename(id: string) {
+    const trimmed = editValue.trim();
+    setEditingId(null);
+    if (!trimmed) return;
+
+    const previous = documents;
+    setDocuments((prev) =>
+      prev.map((d) => (d._id === id ? { ...d, originalFileName: trimmed } : d))
+    );
+
+    const res = await fetch(`/api/documents/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ originalFileName: trimmed }),
+    });
+
+    if (!res.ok) {
+      setDocuments(previous);
+    }
+  }
+
+  function handlePreview(doc: DocumentSummary) {
+    window.open(doc.storageUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -90,21 +130,38 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
         {documents.map((doc) => (
           <li
             key={doc._id}
-            className="flex items-center justify-between rounded border border-gray-800 px-4 py-3"
+            className="group flex items-center justify-between rounded border border-gray-800 px-4 py-3"
           >
-            <div>
-              <p className="text-sm">{doc.originalFileName}</p>
+            <div className="flex-1 min-w-0">
+              {editingId === doc._id ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => saveRename(doc._id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveRename(doc._id);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  className="bg-transparent border-b border-gray-500 outline-none w-full text-sm text-white"
+                />
+              ) : (
+                <p className="text-sm truncate">{doc.originalFileName}</p>
+              )}
               <p className="text-xs text-gray-500">
                 {doc.fileType.toUpperCase()} · {(doc.fileSizeBytes / 1024).toFixed(0)} KB ·{" "}
                 <span className="capitalize">{doc.status}</span>
               </p>
             </div>
-            <button
-              onClick={() => handleDelete(doc._id)}
-              className="text-xs text-gray-500 hover:text-red-400"
-            >
-              Delete
-            </button>
+            <div className="opacity-0 group-hover:opacity-100 ml-2">
+              <OverflowMenu
+                items={[
+                  { label: "Preview", onClick: () => handlePreview(doc) },
+                  { label: "Rename", onClick: () => startEditing(doc) },
+                  { label: "Delete", onClick: () => handleDelete(doc._id), danger: true },
+                ]}
+              />
+            </div>
           </li>
         ))}
       </ul>
