@@ -38,6 +38,60 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
     loadDocuments();
   }, [loadDocuments]);
 
+  // Uploads one file directly to Cloudinary (bypassing our own API for the
+  // actual bytes), then tells our backend the upload is done so it can save
+  // the DB record. This is what keeps large files off Vercel's 4.5MB
+  // serverless function payload limit — only small JSON ever hits our API.
+  const uploadOne = useCallback(
+    async (file: File) => {
+      const signRes = await fetch("/api/documents/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name }),
+      });
+      if (!signRes.ok) {
+        throw new Error(`Could not authorize upload for ${file.name}`);
+      }
+      const { signature, timestamp, folder, publicId, apiKey, cloudName } =
+        await signRes.json();
+
+      const cloudinaryForm = new FormData();
+      cloudinaryForm.append("file", file);
+      cloudinaryForm.append("api_key", apiKey);
+      cloudinaryForm.append("timestamp", String(timestamp));
+      cloudinaryForm.append("signature", signature);
+      cloudinaryForm.append("folder", folder);
+      cloudinaryForm.append("public_id", publicId);
+
+      const uploadRes = await fetch(
+        `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`,
+        { method: "POST", body: cloudinaryForm }
+      );
+      if (!uploadRes.ok) {
+        const data = await uploadRes.json().catch(() => null);
+        throw new Error(data?.error?.message || `Upload to storage failed for ${file.name}`);
+      }
+      const uploadData = await uploadRes.json();
+
+      const confirmRes = await fetch("/api/documents/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          originalFileName: file.name,
+          fileSizeBytes: file.size,
+          storageKey: uploadData.public_id,
+          storageUrl: uploadData.secure_url,
+          conversationId,
+        }),
+      });
+      if (!confirmRes.ok) {
+        const data = await confirmRes.json().catch(() => null);
+        throw new Error(data?.error || `Could not save ${file.name}`);
+      }
+    },
+    [conversationId]
+  );
+
   const uploadFiles = useCallback(
     async (fileList: FileList | File[]) => {
       const files = Array.from(fileList);
@@ -46,29 +100,23 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
       setError("");
       setIsUploading(true);
 
-      try {
-        const formData = new FormData();
-        files.forEach((file) => formData.append("files", file));
-        formData.append("conversationId", conversationId);
-
-        const res = await fetch("/api/documents", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          throw new Error(data?.error || "Upload failed");
+      const failures: string[] = [];
+      for (const file of files) {
+        try {
+          await uploadOne(file);
+        } catch (err) {
+          failures.push(err instanceof Error ? err.message : `Failed to upload ${file.name}`);
         }
-
-        await loadDocuments();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Upload failed");
-      } finally {
-        setIsUploading(false);
       }
+
+      if (failures.length > 0) {
+        setError(failures.join(" — "));
+      }
+
+      await loadDocuments();
+      setIsUploading(false);
     },
-    [conversationId, loadDocuments]
+    [loadDocuments, uploadOne]
   );
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
