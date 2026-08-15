@@ -1,51 +1,68 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: light;
-  --background: #ffffff;
-  --foreground: #171717;
-  --accent: #f0b429;
-  --accent-foreground: #171008;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-/* Allow manual override of theme via data attribute */
-[data-theme="light"] {
-  color-scheme: light;
-  --background: #ffffff;
-  --foreground: #171717;
-  --accent: #f0b429;
-  --accent-foreground: #171008;
-}
-
-[data-theme="dark"] {
   color-scheme: dark;
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #0b0f14;
+  --background-elevated: #121a22;
+  --background-panel: #151d26;
+  --background-soft: #1a2430;
+  --foreground: #edf2f7;
+  --foreground-muted: #a7b5c4;
+  --border: rgba(148, 163, 184, 0.2);
+  --accent: #f0b429;
+  --accent-foreground: #120d06;
+  --navbar-bg: #101922;
+  --sidebar-bg: #0d141b;
+  --card-bg: #121b25;
+  --input-bg: #0f1720;
+  --shadow: rgba(2, 6, 23, 0.45);
 }
 
 html {
   background: var(--background);
   color: var(--foreground);
-  transition: background-color 0.2s, color 0.2s;
+  scroll-behavior: auto;
 }
 
-body {
+html, body {
+  min-height: 100%;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  background:
+    radial-gradient(circle at top, rgba(240, 180, 41, 0.08), transparent 35%),
+    var(--background);
+  color: var(--foreground);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button, input, textarea, select {
+  font: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

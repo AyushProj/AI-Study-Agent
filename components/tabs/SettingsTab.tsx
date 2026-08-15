@@ -1,19 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useTheme } from "@/lib/theme-context";
+import { useEffect, useState } from "react";
 
 export default function SettingsTab() {
-  const { theme, setTheme, resolvedTheme } = useTheme();
   const [apiKey, setApiKey] = useState("");
+  const [keyName, setKeyName] = useState("");
   const [apiKeys, setApiKeys] = useState<{ id: string; key: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [keyName, setKeyName] = useState("");
 
-  // Load API keys on mount
   useEffect(() => {
     loadApiKeys();
   }, []);
@@ -22,12 +19,14 @@ export default function SettingsTab() {
     setIsLoading(true);
     try {
       const res = await fetch("/api/settings/api-keys");
-      if (res.ok) {
-        const data = await res.json();
-        setApiKeys(data);
+      if (!res.ok) {
+        throw new Error("Failed to load API keys");
       }
+      const data = await res.json();
+      setApiKeys(data);
     } catch (err) {
-      console.error("Error loading API keys:", err);
+      console.error(err);
+      setError("Could not load API keys.");
     } finally {
       setIsLoading(false);
     }
@@ -35,8 +34,9 @@ export default function SettingsTab() {
 
   async function handleAddApiKey(e: React.FormEvent) {
     e.preventDefault();
-    if (!apiKey.trim() || !keyName.trim()) {
-      setError("Please enter both a name and API key");
+
+    if (!keyName.trim() || !apiKey.trim()) {
+      setError("Please enter both a name and API key.");
       return;
     }
 
@@ -48,148 +48,128 @@ export default function SettingsTab() {
       const res = await fetch("/api/settings/api-keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: keyName, key: apiKey }),
+        body: JSON.stringify({
+          name: keyName.trim(),
+          key: apiKey.trim(),
+        }),
       });
 
-      if (res.ok) {
-        const newKey = await res.json();
-        setApiKeys([...apiKeys, newKey]);
-        setApiKey("");
-        setKeyName("");
-        setSuccess("API key added successfully!");
-        setTimeout(() => setSuccess(""), 3000);
-      } else {
-        setError("Failed to save API key");
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to save API key.");
       }
+
+      setApiKeys((prev) => [...prev, data]);
+      setKeyName("");
+      setApiKey("");
+      setSuccess("API key added successfully.");
     } catch (err) {
-      setError("Error saving API key");
-      console.error(err);
+      setError(err instanceof Error ? err.message : "Error saving API key.");
     } finally {
       setIsSaving(false);
     }
   }
 
   async function handleDeleteApiKey(id: string) {
-    if (!confirm("Delete this API key? This can't be undone.")) return;
-
     try {
       const res = await fetch(`/api/settings/api-keys/${id}`, {
         method: "DELETE",
       });
 
-      if (res.ok) {
-        setApiKeys(apiKeys.filter((k) => k.id !== id));
-        setSuccess("API key deleted");
-        setTimeout(() => setSuccess(""), 3000);
-      } else {
-        setError("Failed to delete API key");
+      if (!res.ok) {
+        throw new Error("Failed to delete API key.");
       }
+
+      setApiKeys((prev) => prev.filter((item) => item.id !== id));
+      setSuccess("API key deleted.");
     } catch (err) {
-      setError("Error deleting API key");
-      console.error(err);
+      setError(err instanceof Error ? err.message : "Error deleting API key.");
     }
   }
 
   return (
-    <div className="h-full overflow-y-auto p-6 space-y-8">
-      {/* Theme Settings */}
-      <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-        <h2 className="text-xl font-semibold text-white mb-4">Appearance</h2>
-        <div className="space-y-3">
-          <p className="text-sm text-gray-400">Theme</p>
-          <div className="flex gap-3">
-            {(["light", "dark", "system"] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setTheme(t)}
-                className={`px-4 py-2 rounded text-sm font-medium transition ${
-                  theme === t
-                    ? "bg-accent text-accent-foreground"
-                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                }`}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Current: <span className="text-gray-400">{resolvedTheme}</span>
+    <div className="h-full overflow-y-auto bg-[var(--background)] p-6 text-[var(--foreground)]">
+      <div className="mx-auto max-w-3xl space-y-6">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-6 shadow-lg shadow-[var(--shadow)]">
+          <h2 className="text-xl font-semibold text-[var(--foreground)]">Settings</h2>
+          <p className="mt-2 text-sm text-[var(--foreground-muted)]">
+            Add another API key if you want to use an alternate provider.
           </p>
         </div>
-      </div>
 
-      {/* API Keys Section */}
-      <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-        <h2 className="text-xl font-semibold text-white mb-4">API Keys</h2>
-        <p className="text-sm text-gray-400 mb-6">
-          Manage your API keys for integrations and services.
-        </p>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-6 shadow-lg shadow-[var(--shadow)]">
+          <h3 className="mb-4 text-lg font-semibold text-[var(--foreground)]">API Keys</h3>
 
-        {error && (
-          <div className="bg-red-900/20 border border-red-800 text-red-200 text-sm p-3 rounded mb-4">
-            {error}
-          </div>
-        )}
-        {success && (
-          <div className="bg-green-900/20 border border-green-800 text-green-200 text-sm p-3 rounded mb-4">
-            {success}
-          </div>
-        )}
+          {error && (
+            <div className="mb-4 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {error}
+            </div>
+          )}
 
-        {/* Add API Key Form */}
-        <form onSubmit={handleAddApiKey} className="mb-6 space-y-3 p-4 bg-gray-800 rounded">
-          <div>
-            <label className="block text-sm text-gray-300 mb-2">Key Name</label>
-            <input
-              type="text"
-              value={keyName}
-              onChange={(e) => setKeyName(e.target.value)}
-              placeholder="e.g., OpenAI Production"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-accent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-300 mb-2">API Key</label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="Paste your API key here"
-              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-accent"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="w-full bg-accent text-accent-foreground py-2 rounded text-sm font-medium hover:bg-yellow-500 disabled:opacity-50"
-          >
-            {isSaving ? "Saving..." : "Add API Key"}
-          </button>
-        </form>
+          {success && (
+            <div className="mb-4 rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+              {success}
+            </div>
+          )}
 
-        {/* API Keys List */}
-        <div className="space-y-2">
-          <p className="text-sm text-gray-400 mb-3">Your API Keys:</p>
+          <form onSubmit={handleAddApiKey} className="space-y-3">
+            <div>
+              <label className="mb-1 block text-sm text-[var(--foreground-muted)]">Key Name</label>
+              <input
+                type="text"
+                value={keyName}
+                onChange={(e) => setKeyName(e.target.value)}
+                placeholder="e.g. OpenAI backup"
+                className="w-full rounded-md border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[var(--foreground)] outline-none placeholder:text-[var(--foreground-muted)]"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm text-[var(--foreground-muted)]">API Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Paste API key"
+                className="w-full rounded-md border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[var(--foreground)] outline-none placeholder:text-[var(--foreground-muted)]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="w-full rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] disabled:opacity-60"
+            >
+              {isSaving ? "Saving..." : "Add API Key"}
+            </button>
+          </form>
+        </div>
+
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-6 shadow-lg shadow-[var(--shadow)]">
+          <h3 className="mb-4 text-lg font-semibold text-[var(--foreground)]">Your Saved Keys</h3>
+
           {isLoading ? (
-            <p className="text-sm text-gray-500">Loading...</p>
+            <p className="text-sm text-[var(--foreground-muted)]">Loading...</p>
           ) : apiKeys.length === 0 ? (
-            <p className="text-sm text-gray-500">No API keys added yet</p>
+            <p className="text-sm text-[var(--foreground-muted)]">No API keys added yet.</p>
           ) : (
             <div className="space-y-2">
-              {apiKeys.map((k) => (
+              {apiKeys.map((item) => (
                 <div
-                  key={k.id}
-                  className="flex items-center justify-between bg-gray-800 p-3 rounded text-sm"
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-[var(--border)] bg-[var(--background-soft)] px-3 py-2"
                 >
                   <div>
-                    <p className="text-white font-medium">{k.name}</p>
-                    <p className="text-gray-500 text-xs">
-                      {k.key.substring(0, 8)}...{k.key.substring(k.key.length - 4)}
+                    <p className="font-medium text-[var(--foreground)]">{item.name}</p>
+                    <p className="text-xs text-[var(--foreground-muted)]">
+                      {item.key.slice(0, 6)}••••••{item.key.slice(-4)}
                     </p>
                   </div>
+
                   <button
-                    onClick={() => handleDeleteApiKey(k.id)}
-                    className="text-red-400 hover:text-red-300 text-xs font-medium"
+                    onClick={() => handleDeleteApiKey(item.id)}
+                    className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-xs text-red-200"
                   >
                     Delete
                   </button>

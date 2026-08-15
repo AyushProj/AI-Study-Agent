@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import OverflowMenu from "./OverflowMenu";
+import { useRouter, useParams } from "next/navigation";
 
 interface ConversationSummary {
   _id: string;
@@ -18,11 +16,8 @@ export default function ChatSidebar() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
 
   async function loadConversations() {
-    setIsLoading(true);
     const res = await fetch("/api/conversations");
     if (res.ok) {
       const data = await res.json();
@@ -35,127 +30,57 @@ export default function ChatSidebar() {
     loadConversations();
   }, []);
 
-  async function handleNewChat() {
+  async function handleCreateConversation() {
     setIsCreating(true);
-    const res = await fetch("/api/conversations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "New Chat" }),
-    });
-    if (res.ok) {
-      const conversation = await res.json();
-      await loadConversations();
-      router.push(`/chat/${conversation._id}`);
-    }
-    setIsCreating(false);
-  }
 
-  function startEditing(c: ConversationSummary) {
-    setEditingId(c._id);
-    setEditValue(c.title);
-  }
+    try {
+      const res = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New Chat" }),
+      });
 
-  async function saveTitle(id: string) {
-    const trimmed = editValue.trim();
-    setEditingId(null);
-
-    if (!trimmed) return;
-
-    const previous = conversations;
-    setConversations((prev) =>
-      prev.map((c) => (c._id === id ? { ...c, title: trimmed } : c))
-    );
-
-    const res = await fetch(`/api/conversations/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: trimmed }),
-    });
-
-    if (!res.ok) {
-      setConversations(previous);
-    }
-  }
-
-  async function handleDelete(id: string) {
-    const confirmed = window.confirm(
-      "Delete this chat? This also deletes its documents and can't be undone."
-    );
-    if (!confirmed) return;
-
-    const previous = conversations;
-    setConversations((prev) => prev.filter((c) => c._id !== id));
-
-    const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
-
-    if (!res.ok) {
-      setConversations(previous);
-      return;
-    }
-
-    if (activeId === id) {
-      router.push("/chat");
+      if (res.ok) {
+        const newConversation = await res.json();
+        router.push(`/chat/${newConversation._id}?tab=chat`);
+      }
+    } finally {
+      setIsCreating(false);
     }
   }
 
   return (
-    <aside className="w-64 border-r border-gray-800 h-full flex flex-col">
-      <div className="p-3 border-b border-gray-800">
+    <aside className="flex h-full w-72 flex-col border-r border-[var(--border)] bg-[var(--sidebar-bg)]">
+      <div className="border-b border-[var(--border)] p-4">
         <button
-          onClick={handleNewChat}
+          onClick={handleCreateConversation}
           disabled={isCreating}
-          className="w-full rounded bg-white text-black text-sm font-medium py-2 hover:bg-gray-200 disabled:opacity-50"
+          className="w-full rounded-md bg-[var(--accent)] px-3 py-2 text-sm font-medium text-[var(--accent-foreground)] disabled:opacity-60"
         >
-          {isCreating ? "Creating..." : "+ New Chat"}
+          {isCreating ? "Creating..." : "+ New chat"}
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
-        {isLoading && (
-          <p className="text-xs text-gray-500 px-2 py-2">Loading...</p>
+
+      <div className="flex-1 overflow-y-auto p-2">
+        {isLoading ? (
+          <p className="p-2 text-sm text-[var(--foreground-muted)]">Loading...</p>
+        ) : conversations.length === 0 ? (
+          <p className="p-2 text-sm text-[var(--foreground-muted)]">No chats yet.</p>
+        ) : (
+          conversations.map((conversation) => (
+            <button
+              key={conversation._id}
+              onClick={() => router.push(`/chat/${conversation._id}?tab=chat`)}
+              className={`mb-2 block w-full rounded-md border px-3 py-2 text-left text-sm ${
+                activeId === conversation._id
+                  ? "border-[var(--border)] bg-[var(--background-soft)] text-[var(--foreground)]"
+                  : "border-transparent text-[var(--foreground-muted)] hover:bg-white/5 hover:text-[var(--foreground)]"
+              }`}
+            >
+              {conversation.title}
+            </button>
+          ))
         )}
-        {!isLoading && conversations.length === 0 && (
-          <p className="text-xs text-gray-500 px-2 py-2">
-            No chats yet. Start one above.
-          </p>
-        )}
-        {conversations.map((c) => (
-          <div
-            key={c._id}
-            className={`group rounded px-3 py-2 text-sm flex items-center justify-between ${
-              activeId === c._id
-                ? "bg-gray-800 text-white"
-                : "text-gray-300 hover:bg-gray-900"
-            }`}
-          >
-            {editingId === c._id ? (
-              <input
-                autoFocus
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={() => saveTitle(c._id)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") saveTitle(c._id);
-                  if (e.key === "Escape") setEditingId(null);
-                }}
-                className="bg-transparent border-b border-gray-500 outline-none w-full text-white"
-              />
-            ) : (
-              <>
-                <Link href={`/chat/${c._id}`} className="truncate flex-1">
-                  {c.title}
-                </Link>
-                <div className="opacity-0 group-hover:opacity-100">
-                  <OverflowMenu
-                    items={[
-                      { label: "Rename", onClick: () => startEditing(c) },
-                      { label: "Delete", onClick: () => handleDelete(c._id), danger: true },
-                    ]}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        ))}
       </div>
     </aside>
   );

@@ -23,20 +23,22 @@ export default function Navbar() {
     : "/chat";
 
   return (
-    <nav className="border-b border-gray-200 dark:border-gray-800 px-6 py-3 flex items-center justify-between bg-white dark:bg-gray-900">
-      <p className="text-sm text-gray-700 dark:text-gray-200">
-        Welcome, <span className="font-semibold text-gray-900 dark:text-white">{displayName}</span>
-      </p>
+    <nav className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--navbar-bg)] px-6 py-3">
+      <div className="text-sm text-[var(--foreground-muted)]">
+        Welcome, <span className="font-semibold text-[var(--foreground)]">{displayName}</span>
+      </div>
+
       <div className="flex items-center gap-4">
         <Link
           href={settingsUrl}
-          className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+          className="text-sm text-[var(--foreground-muted)] transition hover:text-[var(--foreground)]"
         >
-          ⚙️ Settings
+          Settings
         </Link>
+
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
-          className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+          className="text-sm text-[var(--foreground-muted)] transition hover:text-[var(--foreground)]"
         >
           Log out
         </button>

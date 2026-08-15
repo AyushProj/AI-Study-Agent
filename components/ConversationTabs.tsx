@@ -8,6 +8,7 @@ const TABS = [
   { key: "documents", label: "Documents" },
   { key: "flashcards", label: "Flashcards" },
   { key: "quiz", label: "Quiz" },
+  { key: "settings", label: "Settings" },
 ];
 
 export default function ConversationTabs() {
@@ -16,17 +17,18 @@ export default function ConversationTabs() {
   const activeTab = searchParams.get("tab") || "chat";
 
   return (
-    <div className="border-b border-gray-800 px-6 flex gap-6">
+    <div className="flex gap-6 overflow-x-auto border-b border-[var(--border)] px-6 bg-[var(--navbar-bg)]">
       {TABS.map((tab) => {
         const isActive = activeTab === tab.key;
+
         return (
           <Link
             key={tab.key}
             href={`${pathname}?tab=${tab.key}`}
-            className={`py-3 text-sm border-b-2 -mb-px ${
+            className={`whitespace-nowrap border-b-2 py-3 text-sm ${
               isActive
-                ? "border-white text-white"
-                : "border-transparent text-gray-400 hover:text-gray-200"
+                ? "border-[var(--foreground)] font-medium text-[var(--foreground)]"
+                : "border-transparent text-[var(--foreground-muted)] hover:text-[var(--foreground)]"
             }`}
           >
             {tab.label}

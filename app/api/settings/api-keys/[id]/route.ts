@@ -4,7 +4,7 @@ import clientPromise from "@/lib/db";
 import { auth } from "@/auth";
 
 export async function DELETE(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
@@ -13,8 +13,9 @@ export async function DELETE(
   }
 
   const { id } = await params;
+
   if (!ObjectId.isValid(id)) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ error: "Invalid key id" }, { status: 400 });
   }
 
   const client = await clientPromise;
@@ -26,7 +27,7 @@ export async function DELETE(
   });
 
   if (result.deletedCount === 0) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    return NextResponse.json({ error: "Key not found" }, { status: 404 });
   }
 
   return NextResponse.json({ success: true });

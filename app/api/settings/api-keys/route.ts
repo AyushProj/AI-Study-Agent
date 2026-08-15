@@ -12,13 +12,19 @@ export async function GET() {
   const client = await clientPromise;
   const db = client.db();
 
-  const apiKeys = await db
+  const results = await db
     .collection("apiKeys")
     .find({ userId: new ObjectId(session.user.id) })
-    .project({ key: 0 }) // Don't send full key to frontend
+    .sort({ createdAt: -1 })
     .toArray();
 
-  return NextResponse.json(apiKeys);
+  return NextResponse.json(
+    results.map((item) => ({
+      id: item._id.toString(),
+      name: item.name,
+      key: item.key,
+    }))
+  );
 }
 
 export async function POST(request: Request) {
@@ -30,24 +36,23 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const { name, key } = body;
 
-  if (!name?.trim() || !key?.trim()) {
-    return NextResponse.json({ error: "Name and key required" }, { status: 400 });
+  if (!name || !key) {
+    return NextResponse.json({ error: "Name and key are required." }, { status: 400 });
   }
 
   const client = await clientPromise;
   const db = client.db();
-  const userId = new ObjectId(session.user.id);
 
-  const result = await db.collection("apiKeys").insertOne({
-    userId,
-    name: name.trim(),
-    key: key.trim(),
+  const inserted = await db.collection("apiKeys").insertOne({
+    userId: new ObjectId(session.user.id),
+    name: String(name).trim(),
+    key: String(key).trim(),
     createdAt: new Date(),
   });
 
   return NextResponse.json({
-    id: result.insertedId,
-    name: name.trim(),
-    key: key.substring(0, 8) + "..." + key.substring(key.length - 4),
+    id: inserted.insertedId.toString(),
+    name: String(name).trim(),
+    key: String(key).trim(),
   });
 }
