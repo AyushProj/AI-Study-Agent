@@ -68,8 +68,12 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Cascade delete: each document's file in Cloudinary, then its DB records,
-  // then this conversation's messages and chunks, then the conversation itself.
+  // Cascade delete, outside-in:
+  //   1. Cloudinary files for each document
+  //   2. quizzes -> their questions + attempts
+  //   3. flashcard sets -> their individual cards
+  //   4. documents, documentChunks, messages
+  //   5. the conversation itself
   const documents = await db
     .collection("documents")
     .find({ conversationId, userId })
@@ -81,6 +85,34 @@ export async function DELETE(
     } catch (err) {
       console.error(`Failed to delete storage file for document ${doc._id}:`, err);
     }
+  }
+
+  const quizzes = await db
+    .collection("quizzes")
+    .find({ conversationId, userId })
+    .project({ _id: 1 })
+    .toArray();
+  const quizIds = quizzes.map((q) => q._id);
+
+  if (quizIds.length > 0) {
+    await db.collection("quizQuestions").deleteMany({ quizId: { $in: quizIds } });
+    await db.collection("quizAttempts").deleteMany({ quizId: { $in: quizIds } });
+    await db.collection("quizzes").deleteMany({ _id: { $in: quizIds } });
+  }
+
+  // Adjust collection names here if your flashcard schema differs — this
+  // assumes a "flashcardSets" parent + "flashcards" children pattern
+  // mirroring quizzes/quizQuestions above.
+  const flashcardSets = await db
+    .collection("flashcardSets")
+    .find({ conversationId, userId })
+    .project({ _id: 1 })
+    .toArray();
+  const flashcardSetIds = flashcardSets.map((s) => s._id);
+
+  if (flashcardSetIds.length > 0) {
+    await db.collection("flashcards").deleteMany({ setId: { $in: flashcardSetIds } });
+    await db.collection("flashcardSets").deleteMany({ _id: { $in: flashcardSetIds } });
   }
 
   await db.collection("documentChunks").deleteMany({ conversationId });

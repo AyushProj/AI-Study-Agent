@@ -132,9 +132,23 @@ export async function POST(
     return NextResponse.json({ error: "No text available to generate from" }, { status: 400 });
   }
 
+  // Pull question text from every prior quiz in this conversation, so
+  // regenerating doesn't just hand back a set the model already produced.
+  const priorQuizIds = (
+    await db.collection<Quiz>("quizzes").find({ conversationId, userId }).project({ _id: 1 }).toArray()
+  ).map((q) => q._id);
+
+  const priorQuestions = await db
+    .collection<QuizQuestion>("quizQuestions")
+    .find({ quizId: { $in: priorQuizIds } })
+    .project<{ question: string }>({ question: 1, _id: 0 })
+    .toArray();
+
+  const excludeQuestions = priorQuestions.map((q) => q.question);
+
   let generated;
   try {
-    generated = await generateQuizQuestions(contextText, count);
+    generated = await generateQuizQuestions(contextText, count, excludeQuestions);
   } catch (error) {
     console.error("Quiz generation error:", error);
     return NextResponse.json({ error: "Generation failed, please try again" }, { status: 502 });
