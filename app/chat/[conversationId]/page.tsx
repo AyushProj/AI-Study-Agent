@@ -3,6 +3,7 @@ import ChatTab from "@/components/tabs/ChatTab";
 import DocumentsTab from "@/components/tabs/DocumentsTab";
 import FlashcardsTab from "@/components/tabs/FlashcardsTab";
 import QuizTab from "@/components/tabs/QuizTab";
+import SettingsTab from "@/components/tabs/SettingsTab";
 
 export default async function ConversationPage({
   params,
@@ -23,6 +24,7 @@ export default async function ConversationPage({
         {activeTab === "documents" && <DocumentsTab conversationId={conversationId} />}
         {activeTab === "flashcards" && <FlashcardsTab conversationId={conversationId} />}
         {activeTab === "quiz" && <QuizTab conversationId={conversationId} />}
+        {activeTab === "settings" && <SettingsTab />}
       </div>
     </div>
   );
