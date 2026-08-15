@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 interface DocumentSummary {
   _id: string;
@@ -15,9 +15,15 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Counts nested dragenter/dragleave events so the dropzone doesn't flicker
+  // as the pointer passes over child elements (the icon, the text, etc).
+  const dragCounter = useRef(0);
 
   const loadDocuments = useCallback(async () => {
     setIsLoading(true);
@@ -32,38 +38,83 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
     loadDocuments();
   }, [loadDocuments]);
 
+  const uploadFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList);
+      if (files.length === 0) return;
+
+      setError("");
+      setIsUploading(true);
+
+      try {
+        const formData = new FormData();
+        files.forEach((file) => formData.append("files", file));
+        formData.append("conversationId", conversationId);
+
+        const res = await fetch("/api/documents", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error || "Upload failed");
+        }
+
+        await loadDocuments();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [conversationId, loadDocuments]
+  );
+
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (files && files.length > 0) {
+      await uploadFiles(files);
+    }
+    e.target.value = "";
+  }
 
-    setError("");
-    setIsUploading(true);
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only react to actual file drags, not text/link drags.
+    if (!e.dataTransfer.types.includes("Files")) return;
+    dragCounter.current += 1;
+    setIsDragging(true);
+  }
 
-    try {
-      const formData = new FormData();
+  function handleDragOver(e: React.DragEvent) {
+    // Required — without preventDefault() here, onDrop never fires.
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
-      Array.from(files).forEach((file) => {
-        formData.append("files", file);
-      });
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setIsDragging(false);
+    }
+  }
 
-      formData.append("conversationId", conversationId);
+  async function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDragging(false);
 
-      const res = await fetch("/api/documents", {
-        method: "POST",
-        body: formData,
-      });
+    if (isUploading) return;
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Upload failed");
-      }
-
-      await loadDocuments();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setIsUploading(false);
-      e.target.value = "";
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      await uploadFiles(files);
     }
   }
 
@@ -116,9 +167,25 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
         <div className="mx-auto max-w-2xl">
           <h2 className="mb-4 text-lg font-semibold text-[var(--foreground)]">Upload Documents</h2>
 
-          <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-[var(--border)] p-6 text-center">
+          <div
+            onClick={() => !isUploading && fileInputRef.current?.click()}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click();
+            }}
+            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+              isDragging
+                ? "border-accent bg-accent/10"
+                : "border-[var(--border)] hover:border-[var(--foreground-muted)]"
+            } ${isUploading ? "pointer-events-none opacity-60" : ""}`}
+          >
             <svg
-              className="h-8 w-8 text-[var(--foreground-muted)]"
+              className={`h-8 w-8 ${isDragging ? "text-accent" : "text-[var(--foreground-muted)]"}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -132,22 +199,22 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
             </svg>
 
             <span className="text-sm font-medium text-[var(--foreground)]">
-              Click to upload documents
+              {isDragging ? "Drop to upload" : "Click to upload, or drag and drop files here"}
             </span>
 
             <span className="text-xs text-[var(--foreground-muted)]">
-              PDF, DOCX, TXT — multiple files supported
+              Any file type — multiple files supported
             </span>
 
             <input
+              ref={fileInputRef}
               type="file"
-              accept=".pdf,.docx,.txt"
               multiple
               onChange={handleFileSelect}
               disabled={isUploading}
               className="hidden"
             />
-          </label>
+          </div>
 
           {error && (
             <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">

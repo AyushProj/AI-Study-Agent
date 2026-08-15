@@ -8,6 +8,165 @@ interface Message {
   content: string;
 }
 
+// Maps a fenced code block's language tag to a sensible file extension.
+// Falls back to .txt for anything unrecognized so downloads always work.
+const EXTENSION_BY_LANGUAGE: Record<string, string> = {
+  javascript: "js",
+  js: "js",
+  jsx: "jsx",
+  typescript: "ts",
+  ts: "ts",
+  tsx: "tsx",
+  python: "py",
+  py: "py",
+  java: "java",
+  c: "c",
+  cpp: "cpp",
+  "c++": "cpp",
+  csharp: "cs",
+  cs: "cs",
+  go: "go",
+  golang: "go",
+  rust: "rs",
+  rs: "rs",
+  ruby: "rb",
+  rb: "rb",
+  php: "php",
+  swift: "swift",
+  kotlin: "kt",
+  html: "html",
+  css: "css",
+  scss: "scss",
+  json: "json",
+  sql: "sql",
+  bash: "sh",
+  sh: "sh",
+  shell: "sh",
+  zsh: "sh",
+  yaml: "yaml",
+  yml: "yaml",
+  markdown: "md",
+  md: "md",
+  txt: "txt",
+  text: "txt",
+};
+
+function extensionFor(language: string): string {
+  const key = language.trim().toLowerCase();
+  return EXTENSION_BY_LANGUAGE[key] || "txt";
+}
+
+type ContentSegment =
+  | { type: "text"; content: string }
+  | { type: "code"; language: string; code: string };
+
+/** Splits message content into plain-text and fenced-code-block segments. */
+function parseMessageContent(content: string): ContentSegment[] {
+  const segments: ContentSegment[] = [];
+  const fenceRegex = /```(\w+)?\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fenceRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+    segments.push({
+      type: "code",
+      language: match[1] || "text",
+      code: match[2].replace(/\n$/, ""),
+    });
+    lastIndex = fenceRegex.lastIndex;
+  }
+
+  if (lastIndex < content.length) {
+    segments.push({ type: "text", content: content.slice(lastIndex) });
+  }
+
+  return segments;
+}
+
+function downloadAsFile(code: string, language: string, index: number) {
+  const extension = extensionFor(language);
+  const blob = new Blob([code], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `snippet-${index}.${extension}`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function CodeBlock({
+  language,
+  code,
+  index,
+}: {
+  language: string;
+  code: string;
+  index: number;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard API can fail (permissions, non-secure context); no need to
+      // block the user over it — the download button still works either way.
+    }
+  }
+
+  return (
+    <div className="my-2 overflow-hidden rounded-lg border border-gray-800 bg-black/40">
+      <div className="flex items-center justify-between border-b border-gray-800 px-3 py-1.5">
+        <span className="text-xs text-gray-500">{language || "text"}</span>
+        <div className="flex gap-1">
+          <button
+            onClick={handleCopy}
+            className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-white"
+          >
+            {copied ? "Copied" : "Copy"}
+          </button>
+          <button
+            onClick={() => downloadAsFile(code, language, index)}
+            className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-white"
+          >
+            Download
+          </button>
+        </div>
+      </div>
+      <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
+function MessageContent({ content }: { content: string }) {
+  const segments = parseMessageContent(content);
+
+  return (
+    <>
+      {segments.map((segment, i) =>
+        segment.type === "code" ? (
+          <CodeBlock key={i} language={segment.language} code={segment.code} index={i} />
+        ) : (
+          segment.content && (
+            <span key={i} className="whitespace-pre-wrap">
+              {segment.content}
+            </span>
+          )
+        )
+      )}
+    </>
+  );
+}
+
 export default function ChatTab({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -96,13 +255,17 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
         {messages.map((m) => (
           <div
             key={m._id}
-            className={`max-w-xl rounded px-4 py-2 text-sm whitespace-pre-wrap ${
+            className={`max-w-xl rounded px-4 py-2 text-sm ${
               m.role === "user"
-                ? "bg-white text-black ml-auto"
+                ? "bg-white text-black ml-auto whitespace-pre-wrap"
                 : "bg-gray-900 text-gray-100 border border-gray-800"
             }`}
           >
-            {m.content || (m.role === "assistant" ? "…" : "")}
+            {m.role === "assistant" ? (
+              m.content ? <MessageContent content={m.content} /> : "…"
+            ) : (
+              m.content
+            )}
           </div>
         ))}
         <div ref={bottomRef} />
