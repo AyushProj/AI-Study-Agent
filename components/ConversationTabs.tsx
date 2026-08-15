@@ -8,7 +8,6 @@ const TABS = [
   { key: "documents", label: "Documents" },
   { key: "flashcards", label: "Flashcards" },
   { key: "quiz", label: "Quiz" },
-  { key: "settings", label: "Settings" },
 ];
 
 export default function ConversationTabs() {

@@ -1,16 +1,23 @@
 import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
-import type { DocumentFileType } from "@/types/document";
+
+const EXTRACTABLE_TYPES = new Set(["pdf", "docx", "txt"]);
+
+export function isExtractable(fileType: string): boolean {
+  return EXTRACTABLE_TYPES.has(fileType.toLowerCase());
+}
 
 /**
  * Extracts plain text from an uploaded file buffer based on its detected type.
- * Throws if the file type is unsupported or the buffer can't be parsed.
+ * Returns null (rather than throwing) for file types we don't know how to
+ * parse, so an unsupported type just skips chat-grounding instead of
+ * failing the whole upload — the file is still stored and downloadable.
  */
 export async function extractText(
   buffer: Buffer,
-  fileType: DocumentFileType
-): Promise<string> {
-  switch (fileType) {
+  fileType: string
+): Promise<string | null> {
+  switch (fileType.toLowerCase()) {
     case "pdf": {
       const result = await pdfParse(buffer);
       return result.text;
@@ -22,9 +29,7 @@ export async function extractText(
     case "txt": {
       return buffer.toString("utf-8");
     }
-    default: {
-      const _exhaustive: never = fileType;
-      throw new Error(`Unsupported file type: ${_exhaustive}`);
-    }
+    default:
+      return null;
   }
 }
