@@ -1,8 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
-import DocumentPicker from "@/components/DocumentPicker";
-import ChatSourcePicker from "@/components/ChatSourcePicker";
+import { useCallback, useEffect, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import DocumentPicker from "../DocumentPicker";
+import ChatSourcePicker from "../ChatSourcePicker";
+import SourceToggle, { GenerationSourceValue } from "../SourceToggle";
+import OverflowMenu from "../OverflowMenu";
 
 interface QuizSummary {
   _id: string;
@@ -27,8 +30,6 @@ interface ResultData {
   isCorrect: boolean;
 }
 
-type GenerationSourceValue = "documents" | "chat";
-
 export default function QuizTab({ conversationId }: { conversationId: string }) {
   const [quizzes, setQuizzes] = useState<QuizSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,23 +47,16 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [results, setResults] = useState<{ score: number; total: number; results: ResultData[] } | null>(null);
 
+  // Rename state for the quizzes list.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  const answersContainerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setPrefersReducedMotion(mediaQuery.matches);
-  }, []);
+  const prefersReducedMotion = useReducedMotion();
 
   const loadQuizzes = useCallback(async () => {
     setIsLoading(true);
     const res = await fetch(`/api/conversations/${conversationId}/quizzes`);
-    if (res.ok) {
-      setQuizzes(await res.json());
-    }
+    if (res.ok) setQuizzes(await res.json());
     setIsLoading(false);
   }, [conversationId]);
 
@@ -74,76 +68,61 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
     setError("");
     const selection = source === "documents" ? selectedDocs : selectedMessages;
     if (selection.length === 0) {
-      setError("Please select at least one source");
+      setError(source === "documents" ? "Select at least one document" : "Select at least one chat topic");
       return;
     }
-
     setIsGenerating(true);
-
-    try {
-      const res = await fetch(`/api/conversations/${conversationId}/quizzes`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          source,
-          documentIds: source === "documents" ? selection : [],
-          messageIds: source === "chat" ? selection : [],
-          count,
-        }),
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || "Generation failed");
-      }
-
-      await loadQuizzes();
+    const res = await fetch(`/api/conversations/${conversationId}/quizzes`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        source === "documents"
+          ? { source, documentIds: selectedDocs, count }
+          : { source, messageIds: selectedMessages, count }
+      ),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Generation failed");
+    } else {
       setShowGenerate(false);
       setSelectedDocs([]);
       setSelectedMessages([]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate quiz");
-    } finally {
-      setIsGenerating(false);
+      await loadQuizzes();
     }
+    setIsGenerating(false);
   }
 
   async function openQuiz(quizId: string) {
-    const res = await fetch(`/api/quizzes/${quizId}/questions`);
+    setActiveQuizId(quizId);
+    setAnswers({});
+    setResults(null);
+    const res = await fetch(`/api/quizzes/${quizId}`);
     if (res.ok) {
-      const qs = await res.json();
-      setQuestions(qs);
-      setAnswers({});
-      setResults(null);
-      setActiveQuizId(quizId);
+      const data = await res.json();
+      setQuestions(data.questions);
     }
   }
 
   async function handleSubmit() {
     if (!activeQuizId) return;
-
     setIsSubmitting(true);
-
-    const submittedAnswers = questions.map((q) => ({
-      questionId: q._id,
-      selectedIndex: answers[q._id] ?? -1,
-    }));
-
-    try {
-      const res = await fetch(`/api/quizzes/${activeQuizId}/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: submittedAnswers }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        setResults(data);
-        await loadQuizzes();
-      }
-    } finally {
-      setIsSubmitting(false);
+    const payload = {
+      answers: Object.entries(answers).map(([questionId, selectedIndex]) => ({
+        questionId,
+        selectedIndex,
+      })),
+    };
+    const res = await fetch(`/api/quizzes/${activeQuizId}/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      setResults(await res.json());
+      await loadQuizzes();
     }
+    setIsSubmitting(false);
   }
 
   function startEditing(quiz: QuizSummary) {
@@ -154,13 +133,10 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   async function saveTitle(quizId: string) {
     const trimmed = editValue.trim();
     setEditingId(null);
-
     if (!trimmed) return;
 
     const previous = quizzes;
-    setQuizzes((prev) =>
-      prev.map((q) => (q._id === quizId ? { ...q, title: trimmed } : q))
-    );
+    setQuizzes((prev) => prev.map((q) => (q._id === quizId ? { ...q, title: trimmed } : q)));
 
     const res = await fetch(`/api/quizzes/${quizId}`, {
       method: "PATCH",
@@ -174,123 +150,158 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   }
 
   async function handleDelete(quizId: string) {
-    const confirmed = window.confirm("Delete this quiz?");
+    const confirmed = window.confirm("Delete this quiz? This can't be undone.");
     if (!confirmed) return;
 
     const previous = quizzes;
     setQuizzes((prev) => prev.filter((q) => q._id !== quizId));
 
     const res = await fetch(`/api/quizzes/${quizId}`, { method: "DELETE" });
+
     if (!res.ok) {
       setQuizzes(previous);
+      return;
+    }
+
+    if (activeQuizId === quizId) {
+      setActiveQuizId(null);
     }
   }
 
   if (activeQuizId) {
     return (
-      <div className="flex h-full flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--card-bg)] p-6">
-          <button
-            onClick={() => {
-              setActiveQuizId(null);
-              setResults(null);
-            }}
-            className="text-sm text-[var(--foreground)] hover:opacity-80"
-          >
-            ← Back to Quizzes
-          </button>
+      <div className="p-6 text-white max-w-2xl">
+        <button
+          onClick={() => setActiveQuizId(null)}
+          className="text-sm text-gray-400 hover:text-white mb-4"
+        >
+          ← Back to quizzes
+        </button>
 
-          {results && (
-            <p className="text-sm text-[var(--foreground-muted)]">Quiz Complete</p>
-          )}
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="mx-auto max-w-2xl">
-            {results ? (
-              <>
-                <ScoreReveal
-                  score={results.score}
-                  total={results.total}
-                  reduceMotion={prefersReducedMotion}
-                />
-
-                <div className="mt-8 space-y-6">
-                  {results.results.map((r, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded-lg border border-[var(--border)] bg-[var(--card-bg)] p-4"
-                    >
-                      <p className="mb-3 font-medium text-[var(--foreground)]">
-                        {idx + 1}. {r.question}
-                      </p>
-
-                      <div className="space-y-2">
-                        {r.options.map((opt, oi) => (
-                          <div
-                            key={oi}
-                            className={`rounded p-2 text-sm ${
-                              oi === r.correctIndex
-                                ? "border border-emerald-500/40 bg-emerald-500/10 text-emerald-200"
-                                : oi === r.selectedIndex && !r.isCorrect
-                                ? "border border-red-500/40 bg-red-500/10 text-red-200"
-                                : "bg-[var(--background-soft)] text-[var(--foreground)]"
+        {results ? (
+          <div>
+            <div className="rounded-xl border border-gray-800 p-5">
+              <ScoreReveal score={results.score} total={results.total} reduceMotion={!!prefersReducedMotion} />
+            </div>
+            <div className="space-y-4 mt-6">
+              {results.results.map((r, i) => (
+                <motion.div
+                  key={r.questionId}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.25, delay: i * 0.04 }}
+                  className={`rounded-xl border p-4 ${
+                    r.isCorrect ? "border-green-800/60" : "border-red-800/60"
+                  }`}
+                >
+                  <p className="text-sm font-medium mb-3">{r.question}</p>
+                  <div className="space-y-2">
+                    {r.options.map((opt, oi) => {
+                      const isCorrectAnswer = oi === r.correctIndex;
+                      const isUserWrongPick = oi === r.selectedIndex && !r.isCorrect;
+                      return (
+                        <div
+                          key={oi}
+                          className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm ${
+                            isCorrectAnswer
+                              ? "border-green-700 bg-green-900/30 text-green-200"
+                              : isUserWrongPick
+                              ? "border-red-700 bg-red-900/30 text-red-200"
+                              : "border-gray-800 text-gray-400"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
+                              isCorrectAnswer
+                                ? "border-green-600 bg-green-700 text-white"
+                                : isUserWrongPick
+                                ? "border-red-600 bg-red-700 text-white"
+                                : "border-gray-700 text-gray-500"
                             }`}
                           >
-                            {opt}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                {questions.map((q, idx) => (
-                  <div
-                    key={q._id}
-                    className="mb-8 rounded-lg border border-[var(--border)] bg-[var(--card-bg)] p-4"
-                  >
-                    <p className="mb-4 font-medium text-[var(--foreground)]">
-                      {idx + 1}. {q.question}
-                    </p>
-
-                    <div ref={answersContainerRef} className="space-y-2">
-                      {q.options.map((opt, oi) => (
-                        <label
-                          key={oi}
-                          className="flex cursor-pointer items-center gap-3 rounded border border-[var(--border)] bg-[var(--background-soft)] p-3 hover:opacity-90"
-                        >
-                          <input
-                            type="radio"
-                            name={`q-${q._id}`}
-                            checked={answers[q._id] === oi}
-                            onChange={() => setAnswers((prev) => ({ ...prev, [q._id]: oi }))}
-                            className="accent-[var(--accent)]"
-                          />
-                          <span className="text-sm text-[var(--foreground)]">{opt}</span>
-                        </label>
-                      ))}
-                    </div>
+                            {isCorrectAnswer ? "✓" : isUserWrongPick ? "✗" : String.fromCharCode(65 + oi)}
+                          </span>
+                          <span>{opt}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-
-        {!results && (
-          <div className="border-t border-[var(--border)] bg-[var(--card-bg)] p-6">
-            <div className="mx-auto max-w-2xl">
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting || Object.keys(answers).length !== questions.length}
-                className="w-full rounded-md bg-[var(--accent)] px-4 py-2 font-medium text-[var(--accent-foreground)] disabled:opacity-60"
-              >
-                {isSubmitting ? "Submitting..." : "Submit Quiz"}
-              </button>
+                </motion.div>
+              ))}
             </div>
+          </div>
+        ) : (
+          <div>
+            <div className="mb-5">
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+                <span>
+                  {Object.keys(answers).length} of {questions.length} answered
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-gray-800 overflow-hidden">
+                <motion.div
+                  className="h-full rounded-full bg-accent"
+                  animate={{
+                    width: `${questions.length ? (Object.keys(answers).length / questions.length) * 100 : 0}%`,
+                  }}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.25 }}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {questions.map((q, qi) => (
+                <motion.div
+                  key={q._id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: qi * 0.03 }}
+                  className="rounded-xl border border-gray-800 p-4"
+                >
+                  <p className="text-sm font-medium mb-3">
+                    {q.index + 1}. {q.question}
+                  </p>
+                  <div className="space-y-2">
+                    {q.options.map((opt, i) => {
+                      const isSelected = answers[q._id] === i;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSelected}
+                          onClick={() => setAnswers((prev) => ({ ...prev, [q._id]: i }))}
+                          className={`flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
+                            isSelected
+                              ? "border-accent bg-accent/10 text-white"
+                              : "border-gray-700 text-gray-300 hover:border-gray-500 hover:bg-gray-900"
+                          }`}
+                        >
+                          <span
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
+                              isSelected
+                                ? "border-accent bg-accent text-accent-foreground"
+                                : "border-gray-600 text-gray-400"
+                            }`}
+                          >
+                            {String.fromCharCode(65 + i)}
+                          </span>
+                          <span>{opt}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting || Object.keys(answers).length !== questions.length}
+              className="w-full mt-5 rounded-lg bg-accent text-accent-foreground text-sm font-medium px-4 py-2.5 hover:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
+            >
+              {isSubmitting ? "Submitting..." : "Submit Quiz"}
+            </button>
           </div>
         )}
       </div>
@@ -298,59 +309,35 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-2xl">
-          <div className="mb-6 flex items-center justify-between">
-            <h2 className="text-2xl font-bold text-[var(--foreground)]">Quizzes</h2>
+    <div className="p-6 text-white max-w-2xl">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-medium">Quizzes</h2>
+        <button
+          onClick={() => setShowGenerate((s) => !s)}
+          className="rounded bg-white text-black text-sm font-medium px-4 py-2 hover:bg-gray-200"
+        >
+          {showGenerate ? "Cancel" : "+ Generate Quiz"}
+        </button>
+      </div>
 
-            <button
-              onClick={() => setShowGenerate(!showGenerate)}
-              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)]"
-            >
-              {showGenerate ? "Cancel" : "+ Generate Quiz"}
-            </button>
-          </div>
-
-          {error && (
-            <div className="mb-4 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {error}
-            </div>
-          )}
-
-          {showGenerate && (
-            <div className="mb-6 space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card-bg)] p-4">
+      <AnimatePresence initial={false}>
+        {showGenerate && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
+            <div className="rounded-xl border border-gray-800 p-4 mb-6 space-y-4">
               <div>
-                <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                  Source
-                </label>
-
-                <div className="flex gap-2">
-                  {(["documents", "chat"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => {
-                        setSource(s);
-                        setSelectedDocs([]);
-                        setSelectedMessages([]);
-                      }}
-                      className={`rounded px-3 py-2 text-sm ${
-                        source === s
-                          ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                          : "bg-[var(--background-soft)] text-[var(--foreground)]"
-                      }`}
-                    >
-                      {s === "documents" ? "Documents" : "Chat"}
-                    </button>
-                  ))}
-                </div>
+                <p className="text-sm text-gray-300 mb-2">Generate from</p>
+                <SourceToggle value={source} onChange={setSource} />
               </div>
-
               <div>
-                <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                  {source === "documents" ? "Select Documents" : "Select Chat Topics"}
-                </label>
-
+                <p className="text-sm text-gray-300 mb-2">
+                  {source === "documents" ? "Documents to use" : "Chat topics to use"}
+                </p>
                 {source === "documents" ? (
                   <DocumentPicker
                     conversationId={conversationId}
@@ -365,21 +352,17 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   />
                 )}
               </div>
-
               <div>
-                <label className="mb-2 block text-sm font-medium text-[var(--foreground)]">
-                  Number of Questions
-                </label>
-
+                <p className="text-sm text-gray-300 mb-2">Number of questions</p>
                 <div className="flex gap-2">
                   {[5, 10, 20].map((n) => (
                     <button
                       key={n}
                       onClick={() => setCount(n as 5 | 10 | 20)}
-                      className={`rounded px-3 py-2 text-sm ${
+                      className={`rounded px-3 py-1.5 text-sm border transition-colors ${
                         count === n
-                          ? "bg-[var(--accent)] text-[var(--accent-foreground)]"
-                          : "bg-[var(--background-soft)] text-[var(--foreground)]"
+                          ? "bg-accent text-accent-foreground border-accent"
+                          : "border-gray-600 text-gray-300 hover:border-gray-400"
                       }`}
                     >
                       {n}
@@ -387,80 +370,69 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   ))}
                 </div>
               </div>
-
+              {error && <p className="text-red-500 text-sm">{error}</p>}
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating}
-                className="w-full rounded-md bg-[var(--accent)] px-4 py-2 font-medium text-[var(--accent-foreground)] disabled:opacity-60"
+                className="rounded bg-accent text-accent-foreground text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
               >
-                {isGenerating ? "Generating..." : "Generate Quiz"}
+                {isGenerating ? "Generating..." : "Generate"}
               </button>
             </div>
-          )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          {isLoading ? (
-            <p className="text-[var(--foreground-muted)]">Loading quizzes...</p>
-          ) : quizzes.length === 0 ? (
-            <p className="text-[var(--foreground-muted)]">No quizzes yet. Create one above!</p>
-          ) : (
-            <div className="space-y-2">
-              {quizzes.map((q) => (
-                <div
-                  key={q._id}
-                  className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--card-bg)] p-3"
-                >
-                  <div className="flex-1">
-                    {editingId === q._id ? (
-                      <input
-                        autoFocus
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={() => saveTitle(q._id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") saveTitle(q._id);
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        className="w-full rounded border border-[var(--border)] bg-[var(--input-bg)] px-2 py-1 text-[var(--foreground)] outline-none"
-                      />
-                    ) : (
-                      <>
-                        <p className="font-medium text-[var(--foreground)]">{q.title}</p>
-                        <p className="text-xs text-[var(--foreground-muted)]">
-                          {q.questionCount} questions
-                          {q.lastScore && ` • Last: ${q.lastScore.correct}/${q.lastScore.total}`}
-                        </p>
-                      </>
-                    )}
+      {isLoading && <p className="text-gray-500 text-sm">Loading...</p>}
+      {!isLoading && quizzes.length === 0 && !showGenerate && (
+        <p className="text-gray-500 text-sm">No quizzes yet.</p>
+      )}
+
+      <ul className="space-y-2">
+        <AnimatePresence>
+          {quizzes.map((quiz, i) => (
+            <motion.li
+              key={quiz._id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: i * 0.03 }}
+              className="group flex items-center gap-2 rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
+            >
+              {editingId === quiz._id ? (
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onBlur={() => saveTitle(quiz._id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveTitle(quiz._id);
+                    if (e.key === "Escape") setEditingId(null);
+                  }}
+                  className="flex-1 bg-transparent border-b border-gray-500 outline-none text-sm text-white"
+                />
+              ) : (
+                <>
+                  <button onClick={() => openQuiz(quiz._id)} className="flex-1 text-left">
+                    <p className="text-sm">{quiz.title}</p>
+                    <p className="text-xs text-gray-500">
+                      {quiz.questionCount} questions
+                      {quiz.lastScore && ` · Last score: ${quiz.lastScore.correct}/${quiz.lastScore.total}`}
+                    </p>
+                  </button>
+                  <div className="opacity-0 group-hover:opacity-100">
+                    <OverflowMenu
+                      items={[
+                        { label: "Rename", onClick: () => startEditing(quiz) },
+                        { label: "Delete", onClick: () => handleDelete(quiz._id), danger: true },
+                      ]}
+                    />
                   </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => openQuiz(q._id)}
-                      className="rounded px-2 py-1 text-xs text-blue-400 hover:bg-blue-500/10"
-                    >
-                      Start
-                    </button>
-
-                    <button
-                      onClick={() => startEditing(q)}
-                      className="rounded px-2 py-1 text-xs text-[var(--foreground-muted)] hover:bg-white/5"
-                    >
-                      Rename
-                    </button>
-
-                    <button
-                      onClick={() => handleDelete(q._id)}
-                      className="rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+                </>
+              )}
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ul>
     </div>
   );
 }
@@ -478,42 +450,36 @@ function ScoreReveal({
   const circumference = 2 * Math.PI * 42;
 
   return (
-    <div className="flex flex-col items-center gap-4">
-      <div className="relative h-40 w-40">
-        <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100">
-          <circle
-            cx="50"
-            cy="50"
-            r="42"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="4"
-            className="text-gray-700"
-          />
-          <circle
-            cx="50"
-            cy="50"
-            r="42"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="4"
-            strokeDasharray={circumference}
-            strokeDashoffset={circumference - (circumference * pct) / 100}
-            className="text-[var(--accent)] transition-all duration-500"
-            style={{
-              transitionDuration: reduceMotion ? "0ms" : "500ms",
-            }}
-          />
-        </svg>
-
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-3xl font-bold text-[var(--foreground)]">{pct}%</p>
-            <p className="text-sm text-[var(--foreground-muted)]">
-              {score}/{total}
-            </p>
-          </div>
-        </div>
+    <div className="flex items-center gap-5">
+      <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
+        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--color-background)" strokeWidth="8" />
+        <circle
+          cx="48"
+          cy="48"
+          r="42"
+          fill="none"
+          stroke="#374151"
+          strokeWidth="8"
+        />
+        <motion.circle
+          cx="48"
+          cy="48"
+          r="42"
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: circumference * (1 - pct / 100) }}
+          transition={{ duration: reduceMotion ? 0 : 0.8, ease: "easeOut" }}
+        />
+      </svg>
+      <div>
+        <p className="text-2xl font-semibold">
+          {score} / {total}
+        </p>
+        <p className="text-sm text-gray-400">{pct}% correct</p>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import clientPromise from "@/lib/db";
 import { auth } from "@/auth";
+import type { QuizQuestion } from "@/types/quiz";
 
 export async function GET(
   _request: Request,
@@ -13,7 +14,6 @@ export async function GET(
   }
 
   const { id } = await params;
-
   if (!ObjectId.isValid(id)) {
     return NextResponse.json({ error: "Invalid quiz id" }, { status: 400 });
   }
@@ -22,6 +22,9 @@ export async function GET(
   const client = await clientPromise;
   const db = client.db();
 
+  // Ownership check lives on the quiz itself — quizQuestions has no userId
+  // field (see types/quiz.ts), so filtering questions by userId directly
+  // can never match anything, which is why this route was returning [].
   const quiz = await db.collection("quizzes").findOne({
     _id: new ObjectId(id),
     userId,
@@ -32,17 +35,14 @@ export async function GET(
   }
 
   const questions = await db
-    .collection("quizQuestions")
-    .find({
-      quizId: new ObjectId(id),
-      userId,
-    })
+    .collection<QuizQuestion>("quizQuestions")
+    .find({ quizId: quiz._id })
     .sort({ index: 1 })
     .toArray();
 
   return NextResponse.json(
     questions.map((q) => ({
-      _id: q._id.toString(),
+      _id: q._id!.toString(),
       index: q.index,
       question: q.question,
       options: q.options,
