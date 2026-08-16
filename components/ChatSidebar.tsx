@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import OverflowMenu from "./OverflowMenu";
+import ConfirmDialog from "./ConfirmDialog";
 
 interface ConversationSummary {
   _id: string;
@@ -19,6 +20,7 @@ export default function ChatSidebar() {
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   async function loadConversations() {
     const res = await fetch("/api/conversations");
@@ -82,9 +84,14 @@ export default function ChatSidebar() {
     }
   }
 
-  async function handleDelete(id: string) {
-    const confirmed = window.confirm("Delete this chat? This can't be undone.");
-    if (!confirmed) return;
+  function handleDelete(id: string) {
+    setPendingDeleteId(id);
+  }
+
+  async function confirmDeleteConversation() {
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    if (!id) return;
 
     const previous = conversations;
     setConversations((prev) => prev.filter((c) => c._id !== id));
@@ -169,6 +176,13 @@ export default function ChatSidebar() {
           })
         )}
       </div>
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete chat?"
+        message="This can't be undone."
+        onConfirm={confirmDeleteConversation}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </aside>
   );
 }

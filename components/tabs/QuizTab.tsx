@@ -6,6 +6,7 @@ import DocumentPicker from "../DocumentPicker";
 import ChatSourcePicker from "../ChatSourcePicker";
 import SourceToggle, { GenerationSourceValue } from "../SourceToggle";
 import OverflowMenu from "../OverflowMenu";
+import ConfirmDialog from "../ConfirmDialog";
 
 interface QuizSummary {
   _id: string;
@@ -50,6 +51,9 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   // Rename state for the quizzes list.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  // Pending delete target for the confirm dialog (replaces window.confirm()).
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const prefersReducedMotion = useReducedMotion();
 
@@ -162,9 +166,14 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
     }
   }
 
-  async function handleDelete(quizId: string) {
-    const confirmed = window.confirm("Delete this quiz? This can't be undone.");
-    if (!confirmed) return;
+  function handleDelete(quizId: string) {
+    setPendingDeleteId(quizId);
+  }
+
+  async function confirmDelete() {
+    const quizId = pendingDeleteId;
+    setPendingDeleteId(null);
+    if (!quizId) return;
 
     const previous = quizzes;
     setQuizzes((prev) => prev.filter((q) => q._id !== quizId));
@@ -183,7 +192,8 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
 
   if (activeQuizId) {
     return (
-      <div className="p-6 text-[var(--foreground)] max-w-2xl bg-[var(--background)]">
+      <div className="h-full w-full overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
+        <div className="mx-auto max-w-2xl p-6">
         <button
           onClick={() => setActiveQuizId(null)}
           className="text-sm text-[var(--foreground-muted)] hover:text-[var(--foreground)] mb-4"
@@ -317,12 +327,21 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
             </button>
           </div>
         )}
+        </div>
+        <ConfirmDialog
+          open={pendingDeleteId !== null}
+          title="Delete quiz?"
+          message="This can't be undone."
+          onConfirm={confirmDelete}
+          onCancel={() => setPendingDeleteId(null)}
+        />
       </div>
     );
   }
 
   return (
-    <div className="p-6 text-[var(--foreground)] max-w-2xl bg-[var(--background)]">
+    <div className="h-full w-full overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
+      <div className="mx-auto max-w-2xl p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-medium">Quizzes</h2>
         <button
@@ -446,6 +465,14 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
           ))}
         </AnimatePresence>
       </ul>
+      </div>
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete quiz?"
+        message="This can't be undone."
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

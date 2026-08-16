@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import DocumentPicker from "@/components/DocumentPicker";
 import ChatSourcePicker from "@/components/ChatSourcePicker";
 import OverflowMenu from "@/components/OverflowMenu";
 import Spinner from "@/components/Spinner";
 import EmptyState from "@/components/EmptyState";
 import ErrorBanner from "@/components/ErrorBanner";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 interface FlashcardSetSummary {
   _id: string;
@@ -35,11 +37,27 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
   const [activeSetId, setActiveSetId] = useState<string | null>(null);
   const [cards, setCards] = useState<CardData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [showAnswer, setShowAnswer] = useState(false);
+  const [isFlipped, setIsFlipped] = useState(false);
+  // Which side's text is actually in the DOM. Swapped at the flip
+  // animation's midpoint so the answer text never renders while the
+  // question-side is still facing the viewer, or vice versa.
+  const [activeFace, setActiveFace] = useState<"question" | "answer">("question");
 
-  // Rename state for the sets list — same pattern as Documents/Chats.
+  // Rename state for the sets list.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const prefersReducedMotion = useReducedMotion();
+  const FLIP_DURATION = prefersReducedMotion ? 0 : 0.4;
+
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setActiveFace(isFlipped ? "answer" : "question"),
+      (FLIP_DURATION * 1000) / 2
+    );
+    return () => clearTimeout(timer);
+  }, [isFlipped, FLIP_DURATION]);
 
   const loadSets = useCallback(async () => {
     setIsLoading(true);
@@ -94,16 +112,13 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
   }
 
   async function openSet(setId: string) {
-    // Correct route: conversation-scoped, matching the actual backend
-    // (GET /api/conversations/[id]/flashcards/[setId] -> { set, cards }).
-    // The old /api/flashcards/[setId]/cards URL doesn't exist, which is
-    // what caused the 404.
     const res = await fetch(`/api/conversations/${conversationId}/flashcards/${setId}`);
     if (res.ok) {
       const data = await res.json();
       setCards(data.cards);
       setCurrentIndex(0);
-      setShowAnswer(false);
+      setIsFlipped(false);
+      setActiveFace("question");
       setActiveSetId(setId);
     }
   }
@@ -132,20 +147,39 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
     }
   }
 
-  async function handleDelete(setId: string) {
-    const confirmed = window.confirm("Delete this flashcard set?");
-    if (!confirmed) return;
+  function handleDelete(setId: string) {
+    setPendingDeleteId(setId);
+  }
+
+  async function confirmDeleteSet() {
+    const setId = pendingDeleteId;
+    setPendingDeleteId(null);
+    if (!setId) return;
 
     const prev = sets;
     setSets((current) => current.filter((s) => s._id !== setId));
 
-    // Same fix as openSet — correct conversation-scoped route.
     const res = await fetch(`/api/conversations/${conversationId}/flashcards/${setId}`, {
       method: "DELETE",
     });
     if (!res.ok) {
       setSets(prev);
+      return;
     }
+
+    if (activeSetId === setId) {
+      setActiveSetId(null);
+    }
+  }
+
+  function goToNext() {
+    setIsFlipped(false);
+    setCurrentIndex((prev) => (prev + 1) % cards.length);
+  }
+
+  function goToPrevious() {
+    setIsFlipped(false);
+    setCurrentIndex((prev) => (prev - 1 + cards.length) % cards.length);
   }
 
   if (activeSetId) {
@@ -166,47 +200,63 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
           </p>
         </div>
 
-        <div className="flex flex-1 items-center justify-center p-6">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
           {card ? (
-            <div className="w-full max-w-2xl rounded-lg border border-[var(--border)] bg-[var(--card-bg)] p-6">
-              <p className="mb-4 text-xs uppercase tracking-[0.18em] text-[var(--foreground-muted)]">
-                Question
-              </p>
-
-              <h3 className="text-xl font-semibold text-[var(--foreground)]">
-                {card.question}
-              </h3>
-
-              {showAnswer && (
-                <div className="mt-8 border-t border-[var(--border)] pt-6">
-                  <p className="mb-4 text-xs uppercase tracking-[0.18em] text-[var(--foreground-muted)]">
-                    Answer
-                  </p>
-                  <p className="text-lg text-[var(--foreground)]">{card.answer}</p>
-                </div>
-              )}
-
-              <div className="mt-8 flex gap-3">
-                {!showAnswer && (
-                  <button
-                    onClick={() => setShowAnswer(true)}
-                    className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)]"
-                  >
-                    Show Answer
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    setShowAnswer(false);
-                    setCurrentIndex((prev) => (prev + 1) % cards.length);
-                  }}
-                  className="rounded-md border border-[var(--border)] bg-[var(--background-soft)] px-4 py-2 text-sm text-[var(--foreground)]"
+            <>
+              <div className="w-full max-w-xl" style={{ perspective: 1200 }}>
+                <motion.div
+                  onClick={() => setIsFlipped((f) => !f)}
+                  animate={{ rotateY: isFlipped ? 180 : 0 }}
+                  transition={{ duration: FLIP_DURATION, ease: "easeInOut" }}
+                  className={`flex min-h-[260px] cursor-pointer items-center justify-center rounded-xl border p-8 text-center transition-colors ${
+                    activeFace === "answer"
+                      ? "border-[var(--accent)]/40 bg-[var(--card-bg)]"
+                      : "border-[var(--border)] bg-[var(--card-bg)]"
+                  }`}
                 >
-                  Next Card
+                  <div
+                    style={{ transform: activeFace === "answer" ? "rotateY(180deg)" : "none" }}
+                  >
+                    <p className="mb-4 text-xs uppercase tracking-[0.18em] text-[var(--foreground-muted)]">
+                      {activeFace === "answer" ? "Answer" : "Question"}
+                    </p>
+                    <p className="text-lg text-[var(--foreground)]">
+                      {activeFace === "answer" ? card.answer : card.question}
+                    </p>
+                  </div>
+                </motion.div>
+              </div>
+
+              <p className="text-xs text-[var(--foreground-muted)]">Click card to flip</p>
+
+              <div className="flex gap-1.5">
+                {cards.map((_, i) => (
+                  <span
+                    key={i}
+                    className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                      i === currentIndex ? "bg-[var(--accent)]" : "bg-[var(--border)]"
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <div className="flex w-full max-w-xl justify-between">
+                <button
+                  onClick={goToPrevious}
+                  disabled={cards.length <= 1}
+                  className="rounded-md border border-[var(--border)] bg-[var(--background-soft)] px-4 py-2 text-sm text-[var(--foreground)] disabled:opacity-40"
+                >
+                  ← Previous
+                </button>
+                <button
+                  onClick={goToNext}
+                  disabled={cards.length <= 1}
+                  className="rounded-md border border-[var(--border)] bg-[var(--background-soft)] px-4 py-2 text-sm text-[var(--foreground)] disabled:opacity-40"
+                >
+                  Next →
                 </button>
               </div>
-            </div>
+            </>
           ) : (
             <p className="text-[var(--foreground-muted)]">No cards available.</p>
           )}
@@ -376,6 +426,13 @@ export default function FlashcardsTab({ conversationId }: { conversationId: stri
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete flashcard set?"
+        message="This can't be undone."
+        onConfirm={confirmDeleteSet}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Spinner from "../Spinner";
 import EmptyState from "../EmptyState";
 import ErrorBanner from "../ErrorBanner";
+import ConfirmDialog from "../ConfirmDialog";
 
 interface DocumentSummary {
   _id: string;
@@ -22,6 +23,7 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Counts nested dragenter/dragleave events so the dropzone doesn't flicker
@@ -169,9 +171,14 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
     }
   }
 
-  async function handleDelete(id: string) {
-    const confirmDelete = window.confirm("Delete this document?");
-    if (!confirmDelete) return;
+  function handleDelete(id: string) {
+    setPendingDeleteId(id);
+  }
+
+  async function confirmDeleteDocument() {
+    const id = pendingDeleteId;
+    setPendingDeleteId(null);
+    if (!id) return;
 
     const previous = documents;
     setDocuments((prev) => prev.filter((d) => d._id !== id));
@@ -369,6 +376,13 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
           )}
         </div>
       </div>
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete document?"
+        message="This can't be undone."
+        onConfirm={confirmDeleteDocument}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }
