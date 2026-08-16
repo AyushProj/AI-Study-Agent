@@ -125,6 +125,19 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
     setIsSubmitting(false);
   }
 
+  // Clicking a selected option again deselects it (per request); clicking a
+  // different option switches the selection as before.
+  function toggleAnswer(questionId: string, optionIndex: number) {
+    setAnswers((prev) => {
+      if (prev[questionId] === optionIndex) {
+        const next = { ...prev };
+        delete next[questionId];
+        return next;
+      }
+      return { ...prev, [questionId]: optionIndex };
+    });
+  }
+
   function startEditing(quiz: QuizSummary) {
     setEditingId(quiz._id);
     setEditValue(quiz.title);
@@ -170,17 +183,17 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
 
   if (activeQuizId) {
     return (
-      <div className="p-6 text-white max-w-2xl">
+      <div className="p-6 text-[var(--foreground)] max-w-2xl bg-[var(--background)]">
         <button
           onClick={() => setActiveQuizId(null)}
-          className="text-sm text-gray-400 hover:text-white mb-4"
+          className="text-sm text-[var(--foreground-muted)] hover:text-[var(--foreground)] mb-4"
         >
           ← Back to quizzes
         </button>
 
         {results ? (
           <div>
-            <div className="rounded-xl border border-gray-800 p-5">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-5">
               <ScoreReveal score={results.score} total={results.total} reduceMotion={!!prefersReducedMotion} />
             </div>
             <div className="space-y-4 mt-6">
@@ -190,7 +203,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: prefersReducedMotion ? 0 : 0.25, delay: i * 0.04 }}
-                  className={`rounded-xl border p-4 ${
+                  className={`rounded-xl border p-4 bg-[var(--card-bg)] ${
                     r.isCorrect ? "border-green-800/60" : "border-red-800/60"
                   }`}
                 >
@@ -207,7 +220,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                               ? "border-green-700 bg-green-900/30 text-green-200"
                               : isUserWrongPick
                               ? "border-red-700 bg-red-900/30 text-red-200"
-                              : "border-gray-800 text-gray-400"
+                              : "border-[var(--border)] text-[var(--foreground-muted)]"
                           }`}
                         >
                           <span
@@ -216,7 +229,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                                 ? "border-green-600 bg-green-700 text-white"
                                 : isUserWrongPick
                                 ? "border-red-600 bg-red-700 text-white"
-                                : "border-gray-700 text-gray-500"
+                                : "border-[var(--border)] text-[var(--foreground-muted)]"
                             }`}
                           >
                             {isCorrectAnswer ? "✓" : isUserWrongPick ? "✗" : String.fromCharCode(65 + oi)}
@@ -233,14 +246,14 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
         ) : (
           <div>
             <div className="mb-5">
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+              <div className="flex items-center justify-between text-xs text-[var(--foreground-muted)] mb-1.5">
                 <span>
                   {Object.keys(answers).length} of {questions.length} answered
                 </span>
               </div>
-              <div className="h-1.5 w-full rounded-full bg-gray-800 overflow-hidden">
+              <div className="h-1.5 w-full rounded-full bg-[var(--background-soft)] overflow-hidden">
                 <motion.div
-                  className="h-full rounded-full bg-accent"
+                  className="h-full rounded-full bg-[var(--accent)]"
                   animate={{
                     width: `${questions.length ? (Object.keys(answers).length / questions.length) * 100 : 0}%`,
                   }}
@@ -256,7 +269,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: qi * 0.03 }}
-                  className="rounded-xl border border-gray-800 p-4"
+                  className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-4"
                 >
                   <p className="text-sm font-medium mb-3">
                     {q.index + 1}. {q.question}
@@ -270,18 +283,18 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                           type="button"
                           role="radio"
                           aria-checked={isSelected}
-                          onClick={() => setAnswers((prev) => ({ ...prev, [q._id]: i }))}
+                          onClick={() => toggleAnswer(q._id, i)}
                           className={`flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors ${
                             isSelected
-                              ? "border-accent bg-accent/10 text-white"
-                              : "border-gray-700 text-gray-300 hover:border-gray-500 hover:bg-gray-900"
+                              ? "border-yellow-500 bg-yellow-500/10 text-yellow-50"
+                              : "border-[var(--border)] text-[var(--foreground-muted)] hover:border-[var(--foreground-muted)] hover:bg-[var(--background-soft)]"
                           }`}
                         >
                           <span
                             className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium ${
                               isSelected
-                                ? "border-accent bg-accent text-accent-foreground"
-                                : "border-gray-600 text-gray-400"
+                                ? "border-yellow-500 bg-yellow-500 text-black"
+                                : "border-[var(--border)] text-[var(--foreground-muted)]"
                             }`}
                           >
                             {String.fromCharCode(65 + i)}
@@ -298,7 +311,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
             <button
               onClick={handleSubmit}
               disabled={isSubmitting || Object.keys(answers).length !== questions.length}
-              className="w-full mt-5 rounded-lg bg-accent text-accent-foreground text-sm font-medium px-4 py-2.5 hover:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
+              className="w-full mt-5 rounded-lg bg-[var(--accent)] text-[var(--accent-foreground)] text-sm font-medium px-4 py-2.5 hover:brightness-95 disabled:opacity-50 disabled:hover:brightness-100"
             >
               {isSubmitting ? "Submitting..." : "Submit Quiz"}
             </button>
@@ -309,12 +322,12 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
   }
 
   return (
-    <div className="p-6 text-white max-w-2xl">
+    <div className="p-6 text-[var(--foreground)] max-w-2xl bg-[var(--background)]">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-medium">Quizzes</h2>
         <button
           onClick={() => setShowGenerate((s) => !s)}
-          className="rounded bg-white text-black text-sm font-medium px-4 py-2 hover:bg-gray-200"
+          className="rounded bg-[var(--accent)] text-[var(--accent-foreground)] text-sm font-medium px-4 py-2 hover:brightness-95"
         >
           {showGenerate ? "Cancel" : "+ Generate Quiz"}
         </button>
@@ -329,13 +342,13 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
             transition={{ duration: prefersReducedMotion ? 0 : 0.25, ease: "easeOut" }}
             className="overflow-hidden"
           >
-            <div className="rounded-xl border border-gray-800 p-4 mb-6 space-y-4">
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-4 mb-6 space-y-4">
               <div>
-                <p className="text-sm text-gray-300 mb-2">Generate from</p>
+                <p className="text-sm text-[var(--foreground-muted)] mb-2">Generate from</p>
                 <SourceToggle value={source} onChange={setSource} />
               </div>
               <div>
-                <p className="text-sm text-gray-300 mb-2">
+                <p className="text-sm text-[var(--foreground-muted)] mb-2">
                   {source === "documents" ? "Documents to use" : "Chat topics to use"}
                 </p>
                 {source === "documents" ? (
@@ -353,7 +366,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                 )}
               </div>
               <div>
-                <p className="text-sm text-gray-300 mb-2">Number of questions</p>
+                <p className="text-sm text-[var(--foreground-muted)] mb-2">Number of questions</p>
                 <div className="flex gap-2">
                   {[5, 10, 20].map((n) => (
                     <button
@@ -361,8 +374,8 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                       onClick={() => setCount(n as 5 | 10 | 20)}
                       className={`rounded px-3 py-1.5 text-sm border transition-colors ${
                         count === n
-                          ? "bg-accent text-accent-foreground border-accent"
-                          : "border-gray-600 text-gray-300 hover:border-gray-400"
+                          ? "bg-[var(--accent)] text-[var(--accent-foreground)] border-[var(--accent)]"
+                          : "border-[var(--border)] text-[var(--foreground-muted)] hover:border-[var(--foreground-muted)]"
                       }`}
                     >
                       {n}
@@ -374,7 +387,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating}
-                className="rounded bg-accent text-accent-foreground text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
+                className="rounded bg-[var(--accent)] text-[var(--accent-foreground)] text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
               >
                 {isGenerating ? "Generating..." : "Generate"}
               </button>
@@ -383,9 +396,9 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
         )}
       </AnimatePresence>
 
-      {isLoading && <p className="text-gray-500 text-sm">Loading...</p>}
+      {isLoading && <p className="text-[var(--foreground-muted)] text-sm">Loading...</p>}
       {!isLoading && quizzes.length === 0 && !showGenerate && (
-        <p className="text-gray-500 text-sm">No quizzes yet.</p>
+        <p className="text-[var(--foreground-muted)] text-sm">No quizzes yet.</p>
       )}
 
       <ul className="space-y-2">
@@ -396,7 +409,7 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: prefersReducedMotion ? 0 : 0.2, delay: i * 0.03 }}
-              className="group flex items-center gap-2 rounded-lg border border-gray-800 px-4 py-3 transition-colors hover:border-accent/50 hover:bg-gray-900"
+              className="group flex items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--card-bg)] px-4 py-3 transition-colors hover:border-[var(--accent)]/50"
             >
               {editingId === quiz._id ? (
                 <input
@@ -408,13 +421,13 @@ export default function QuizTab({ conversationId }: { conversationId: string }) 
                     if (e.key === "Enter") saveTitle(quiz._id);
                     if (e.key === "Escape") setEditingId(null);
                   }}
-                  className="flex-1 bg-transparent border-b border-gray-500 outline-none text-sm text-white"
+                  className="flex-1 bg-transparent border-b border-[var(--border)] outline-none text-sm text-[var(--foreground)]"
                 />
               ) : (
                 <>
                   <button onClick={() => openQuiz(quiz._id)} className="flex-1 text-left">
                     <p className="text-sm">{quiz.title}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-[var(--foreground-muted)]">
                       {quiz.questionCount} questions
                       {quiz.lastScore && ` · Last score: ${quiz.lastScore.correct}/${quiz.lastScore.total}`}
                     </p>
@@ -452,21 +465,18 @@ function ScoreReveal({
   return (
     <div className="flex items-center gap-5">
       <svg width="96" height="96" viewBox="0 0 96 96" className="-rotate-90">
-        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--color-background)" strokeWidth="8" />
-        <circle
-          cx="48"
-          cy="48"
-          r="42"
-          fill="none"
-          stroke="#374151"
-          strokeWidth="8"
-        />
+        {/* Track ring — was previously two overlapping circles, one of
+            which referenced a CSS var (--color-background) that doesn't
+            exist anywhere else in this app's theme. Down to one track
+            circle, using the same --border var every other tab uses for
+            neutral dividers/tracks. */}
+        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--border)" strokeWidth="8" />
         <motion.circle
           cx="48"
           cy="48"
           r="42"
           fill="none"
-          stroke="var(--color-accent)"
+          stroke="var(--accent)"
           strokeWidth="8"
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -476,10 +486,10 @@ function ScoreReveal({
         />
       </svg>
       <div>
-        <p className="text-2xl font-semibold">
+        <p className="text-2xl font-semibold text-[var(--foreground)]">
           {score} / {total}
         </p>
-        <p className="text-sm text-gray-400">{pct}% correct</p>
+        <p className="text-sm text-[var(--foreground-muted)]">{pct}% correct</p>
       </div>
     </div>
   );
