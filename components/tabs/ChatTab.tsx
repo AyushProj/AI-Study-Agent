@@ -175,6 +175,21 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const MAX_TEXTAREA_HEIGHT = 200; // px — after this it scrolls internally instead of growing further
+
+  // Auto-grow the textarea to fit its content, capped at MAX_TEXTAREA_HEIGHT.
+  function resizeTextarea() {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+  }
+
+  useEffect(() => {
+    resizeTextarea();
+  }, [input]);
 
   useEffect(() => {
     async function loadMessages() {
@@ -198,6 +213,11 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
     if (!content || isSending) return;
 
     setInput("");
+    // Reset height immediately rather than waiting on the input-driven
+    // effect, so the box visibly snaps back to one line right on send.
+    requestAnimationFrame(() => {
+      if (textareaRef.current) textareaRef.current.style.height = "auto";
+    });
     setIsSending(true);
 
     const userMessage: Message = { _id: `temp-user-${Date.now()}`, role: "user", content };
@@ -245,6 +265,16 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
     }
   }
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (input.trim() && !isSending) {
+        handleSend(e as unknown as React.FormEvent);
+      }
+    }
+    // Shift+Enter falls through to the textarea's default behavior (newline).
+  }
+
   return (
     <div className="h-full flex flex-col bg-[var(--background)]">
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -283,13 +313,17 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
         ))}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={handleSend} className="border-t border-[var(--border)] p-4 flex gap-2">
-        <input
+      <form onSubmit={handleSend} className="border-t border-[var(--border)] p-4 flex gap-2 items-end">
+        <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question..."
+          onKeyDown={handleKeyDown}
+          placeholder="Ask a question... (Shift+Enter for a new line)"
           disabled={isSending}
-          className="flex-1 rounded-md border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] outline-none focus:border-[var(--accent)]"
+          rows={1}
+          className="flex-1 resize-none rounded-md border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] outline-none focus:border-[var(--accent)] overflow-y-auto leading-relaxed"
+          style={{ maxHeight: MAX_TEXTAREA_HEIGHT }}
         />
         <button
           type="submit"
