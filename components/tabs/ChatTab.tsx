@@ -319,7 +319,7 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ask a question... (Shift+Enter for a new line)"
+          placeholder="Write a message..."
           disabled={isSending}
           rows={1}
           className="flex-1 resize-none rounded-md border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] outline-none focus:border-[var(--accent)] overflow-y-auto leading-relaxed"
