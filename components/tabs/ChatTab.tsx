@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Spinner from "../Spinner";
+import EmptyState from "../EmptyState";
 
 interface Message {
   _id: string;
@@ -122,19 +124,19 @@ function CodeBlock({
   }
 
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-gray-800 bg-black/40">
-      <div className="flex items-center justify-between border-b border-gray-800 px-3 py-1.5">
-        <span className="text-xs text-gray-500">{language || "text"}</span>
+    <div className="my-2 overflow-hidden rounded-lg border border-[var(--border)] bg-black/40">
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-1.5">
+        <span className="text-xs text-[var(--foreground-muted)]">{language || "text"}</span>
         <div className="flex gap-1">
           <button
             onClick={handleCopy}
-            className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-white"
+            className="rounded px-2 py-1 text-xs text-[var(--foreground-muted)] hover:bg-white/5 hover:text-[var(--foreground)]"
           >
             {copied ? "Copied" : "Copy"}
           </button>
           <button
             onClick={() => downloadAsFile(code, language, index)}
-            className="rounded px-2 py-1 text-xs text-gray-400 hover:bg-white/5 hover:text-white"
+            className="rounded px-2 py-1 text-xs text-[var(--foreground-muted)] hover:bg-white/5 hover:text-[var(--foreground)]"
           >
             Download
           </button>
@@ -244,21 +246,32 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-[var(--background)]">
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
-        {isLoading && <p className="text-gray-500 text-sm">Loading chat...</p>}
+        {isLoading && <Spinner label="Loading chat..." />}
         {!isLoading && messages.length === 0 && (
-          <p className="text-gray-500 text-sm">
-            Ask a question about your uploaded documents, or anything else.
-          </p>
+          <EmptyState
+            icon={
+              <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.5}
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                />
+              </svg>
+            }
+            title="Start the conversation"
+            description="Ask a question about your uploaded documents, or anything else."
+          />
         )}
         {messages.map((m) => (
           <div
             key={m._id}
-            className={`max-w-xl rounded px-4 py-2 text-sm ${
+            className={`max-w-xl rounded-lg px-4 py-2 text-sm ${
               m.role === "user"
-                ? "bg-white text-black ml-auto whitespace-pre-wrap"
-                : "bg-gray-900 text-gray-100 border border-gray-800"
+                ? "bg-[var(--accent)] text-[var(--accent-foreground)] ml-auto whitespace-pre-wrap"
+                : "bg-[var(--card-bg)] text-[var(--foreground)] border border-[var(--border)]"
             }`}
           >
             {m.role === "assistant" ? (
@@ -270,18 +283,18 @@ export default function ChatTab({ conversationId }: { conversationId: string }) 
         ))}
         <div ref={bottomRef} />
       </div>
-      <form onSubmit={handleSend} className="border-t border-gray-800 p-4 flex gap-2">
+      <form onSubmit={handleSend} className="border-t border-[var(--border)] p-4 flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask a question..."
           disabled={isSending}
-          className="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-gray-400"
+          className="flex-1 rounded-md border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[var(--foreground)] placeholder:text-[var(--foreground-muted)] outline-none focus:border-[var(--accent)]"
         />
         <button
           type="submit"
           disabled={isSending || !input.trim()}
-          className="rounded bg-white text-black text-sm font-medium px-4 py-2 hover:bg-gray-200 disabled:opacity-50"
+          className="rounded-md bg-[var(--accent)] text-[var(--accent-foreground)] text-sm font-medium px-4 py-2 hover:brightness-95 disabled:opacity-50"
         >
           {isSending ? "Sending..." : "Send"}
         </button>

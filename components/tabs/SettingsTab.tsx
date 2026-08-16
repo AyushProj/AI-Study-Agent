@@ -1,8 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Spinner from "../Spinner";
+import EmptyState from "../EmptyState";
+import ErrorBanner from "../ErrorBanner";
 
 export default function SettingsTab() {
+  const router = useRouter();
   const [apiKey, setApiKey] = useState("");
   const [keyName, setKeyName] = useState("");
   const [apiKeys, setApiKeys] = useState<{ id: string; key: string; name: string }[]>([]);
@@ -14,6 +19,18 @@ export default function SettingsTab() {
   useEffect(() => {
     loadApiKeys();
   }, []);
+
+  function handleBack() {
+    // router.back() returns to whatever page the user actually came from —
+    // "the last working page we were on," as requested. Falls back to
+    // /chat only if there's nowhere to go back to (e.g. Settings was
+    // opened directly via a bookmark or a fresh tab, with no history).
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/chat");
+    }
+  }
 
   async function loadApiKeys() {
     setIsLoading(true);
@@ -91,6 +108,16 @@ export default function SettingsTab() {
   return (
     <div className="h-full overflow-y-auto bg-[var(--background)] p-6 text-[var(--foreground)]">
       <div className="mx-auto max-w-3xl space-y-6">
+        <button
+          onClick={handleBack}
+          className="flex items-center gap-1.5 text-sm text-[var(--foreground-muted)] transition hover:text-[var(--foreground)]"
+        >
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-6 shadow-lg shadow-[var(--shadow)]">
           <h2 className="text-xl font-semibold text-[var(--foreground)]">Settings</h2>
           <p className="mt-2 text-sm text-[var(--foreground-muted)]">
@@ -102,8 +129,8 @@ export default function SettingsTab() {
           <h3 className="mb-4 text-lg font-semibold text-[var(--foreground)]">API Keys</h3>
 
           {error && (
-            <div className="mb-4 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {error}
+            <div className="mb-4">
+              <ErrorBanner message={error} />
             </div>
           )}
 
@@ -150,9 +177,22 @@ export default function SettingsTab() {
           <h3 className="mb-4 text-lg font-semibold text-[var(--foreground)]">Your Saved Keys</h3>
 
           {isLoading ? (
-            <p className="text-sm text-[var(--foreground-muted)]">Loading...</p>
+            <Spinner label="Loading your keys..." />
           ) : apiKeys.length === 0 ? (
-            <p className="text-sm text-[var(--foreground-muted)]">No API keys added yet.</p>
+            <EmptyState
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M15 7a2 2 0 012 2m4 0a6 6 0 11-12 0 6 6 0 0112 0zM7 12l-4 4m0 0l2 2m-2-2l2-2"
+                  />
+                </svg>
+              }
+              title="No API keys added yet"
+              description="Add one above if you'd rather use your own key instead of the default."
+            />
           ) : (
             <div className="space-y-2">
               {apiKeys.map((item) => (

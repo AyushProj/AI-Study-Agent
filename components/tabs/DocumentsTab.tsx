@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import Spinner from "../Spinner";
+import EmptyState from "../EmptyState";
+import ErrorBanner from "../ErrorBanner";
 
 interface DocumentSummary {
   _id: string;
@@ -265,8 +268,8 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
           </div>
 
           {error && (
-            <div className="mt-3 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-              {error}
+            <div className="mt-3">
+              <ErrorBanner message={error} />
             </div>
           )}
 
@@ -283,11 +286,22 @@ export default function DocumentsTab({ conversationId }: { conversationId: strin
           </h3>
 
           {isLoading ? (
-            <p className="text-[var(--foreground-muted)]">Loading documents...</p>
+            <Spinner label="Loading documents..." />
           ) : documents.length === 0 ? (
-            <p className="text-[var(--foreground-muted)]">
-              No documents uploaded yet. Upload one above to get started.
-            </p>
+            <EmptyState
+              icon={
+                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+              }
+              title="No documents yet"
+              description="Upload a document above to start building your study material."
+            />
           ) : (
             <div className="space-y-2">
               {documents.map((doc) => (

@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 const TABS = [
-  { key: "chat", label: "Chat" },
   { key: "documents", label: "Documents" },
+  { key: "chat", label: "Chat" },
   { key: "flashcards", label: "Flashcards" },
   { key: "quiz", label: "Quiz" },
 ];
@@ -13,7 +13,7 @@ const TABS = [
 export default function ConversationTabs() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const activeTab = searchParams.get("tab") || "chat";
+  const activeTab = searchParams.get("tab") || "documents";
 
   return (
     <div className="flex gap-6 overflow-x-auto border-b border-[var(--border)] px-6 bg-[var(--navbar-bg)]">

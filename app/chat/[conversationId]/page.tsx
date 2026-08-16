@@ -13,7 +13,7 @@ export default async function ConversationPage({
 }) {
   const { conversationId } = await params;
   const { tab } = await searchParams;
-  const activeTab = tab || "chat";
+  const activeTab = tab || "documents";
 
   return (
     <div className="h-full flex flex-col">
